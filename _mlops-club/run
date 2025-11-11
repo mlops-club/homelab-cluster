@@ -1,0 +1,27 @@
+#!/bin/bash -euo pipefail
+
+function set-up-passwordless-ssh {
+    # generate a new ssh key
+    # ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+    # copy it to each of the nodes
+    for node in {1..3}; do
+        ssh-copy-id -i "${HOME}/.ssh/id_ed25519.pub" "main@cluster-node-$node"
+    done
+}
+
+function all {
+    local cmd="$@"
+    for node in {1..3}; do
+        ssh "main@cluster-node-$node" "$cmd"
+    done
+}
+
+
+function help {
+    echo "Usage: $0 <command>"
+    echo "Commands:"
+    echo "  default - Run the default command"
+    echo "  help - Show this help message"
+}
+
+time ${@:-help}

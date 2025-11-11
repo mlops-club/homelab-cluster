@@ -1,3 +1,23 @@
+This repo is forked from [another](https://github.com/timothystewart6/k3s-ansible#). I'm using it for the MLOps Club homelab cluster.
+
+Find all relevant custom files in `./_mlops-club/`.
+
+We are using tailscale to bring all 3 nodes onto a virtual network using a VPN. There are three nodes:
+
+- `main@cluster-node-1`
+- `main@cluster-node-2`
+- `main@cluster-node-3`
+
+Install the tailscale client on your local machine, log in, and connect to the VPN in order to access each of these nodes.
+
+
+
+<br/>
+<br/>
+<br/>
+<br/>
+
+
 # Automated build of HA k3s Cluster with `kube-vip` and MetalLB
 
 ![Fully Automated K3S etcd High Availability Install](https://img.youtube.com/vi/CbkEWcUZ7zM/0.jpg)

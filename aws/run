@@ -1,0 +1,81 @@
+#!/bin/bash -euo pipefail
+
+export AWS_REGION="us-west-2"
+export AWS_PROFILE="mlops-club"
+
+THIS_DIR="$(dirname "${BASH_SOURCE[0]}")"
+
+function cdk-deploy {
+    cdk deploy \
+        --app "uv run $THIS_DIR/infra.py" \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" \
+        --stack-outputs "$THIS_DIR/stack-outputs.json"
+}
+
+function fetch-ssh-key {
+    # delete the key first
+    chmod 777 "$THIS_DIR/ssh-key"
+    rm -rf "$THIS_DIR/ssh-key"
+
+    # then overwrite
+    mkdir -p "$THIS_DIR/ssh-key"
+    aws ssm get-parameter --name "/ec2/keypair/key-0431735ad7ab2e290" --with-decryption --query "Parameter.Value" --output text --profile "$AWS_PROFILE" --region "$AWS_REGION" > "$THIS_DIR/ssh-key/private-key.pem"
+    chmod 400 "$THIS_DIR/ssh-key/private-key.pem"
+}
+
+# ./run connect-to-instance <index>
+# Connects to the EC2 instance at the given index (starts at 0)
+function connect-to-instance {
+    local index="${1:-0}"
+    local public_ip=$(aws cloudformation describe-stacks \
+        --stack-name cluster \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" \
+        --output json | jq -r ".Stacks[0].Outputs[]? | select(.OutputKey==\"Instance${index}PublicIP\") | .OutputValue")
+    
+    if [ -z "$public_ip" ] || [ "$public_ip" = "null" ]; then
+        echo "No public IP found for instance $index"
+        return 1
+    fi
+    
+    ssh -i "$THIS_DIR/ssh-key/private-key.pem" "ec2-user@${public_ip}"
+}
+
+function cdk-destroy {
+    cdk destroy \
+        --app "uv run $THIS_DIR/infra.py" \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION"
+}
+
+function cdk-bootstrap {
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text --profile "$AWS_PROFILE")
+    cdk bootstrap "aws://$AWS_ACCOUNT_ID/$AWS_REGION" --profile "$AWS_PROFILE"
+}
+
+function set-up-passwordless-ssh {
+    # generate a new ssh key
+    # ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+    # copy it to each of the nodes
+    for node in {1..3}; do
+        ssh-copy-id -i "${HOME}/.ssh/id_ed25519.pub" "main@cluster-node-$node"
+    done
+}
+
+function all {
+    local cmd="$@"
+    for node in {1..3}; do
+        ssh "main@cluster-node-$node" "$cmd"
+    done
+}
+
+
+function help {
+    echo "Usage: $0 <command>"
+    echo "Commands:"
+    echo "  default - Run the default command"
+    echo "  help - Show this help message"
+}
+
+time ${@:-help}

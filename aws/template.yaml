@@ -1,0 +1,31 @@
+Resources:
+  ClusterKeyPair914BF53A:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyFormat: pem
+      KeyName: cluster-keypair
+      KeyType: rsa
+    Metadata:
+      aws:cdk:path: cluster/ClusterKeyPair/Resource
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/zPSMzIy0jNQTCwv1k1OydbNyUzSqw4uSUzO1kksL45PTTbSq/ZOrQxIzCzScU7LgzJrQWz/0pKC0pJanYDKkoz8PH1jPUNDPUMDxazizEzdotK8kszcVL0gCA0A02aE52YAAAA=
+    Metadata:
+      aws:cdk:path: cluster/CDKMetadata/Default
+Outputs:
+  Instance0PublicIP:
+    Description: Public IP of Instance 0 (using existing instance)
+    Value: 44.253.1.192
+  KeyPairName:
+    Value:
+      Ref: ClusterKeyPair914BF53A
+  SetupInstructions:
+    Description: Manual setup required due to SCP restrictions
+    Value: "Run: ./run setup-existing-instance to configure SSH access"
+Parameters:
+  BootstrapVersion:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /cdk-bootstrap/hnb659fds/version
+    Description: Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]
+

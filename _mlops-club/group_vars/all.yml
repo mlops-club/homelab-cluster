@@ -1,0 +1,107 @@
+---
+# K3s version - update this to match your needs
+k3s_version: v1.30.2+k3s2
+
+# SSH user for all nodes
+ansible_user: main
+
+# Systemd directory
+systemd_dir: /etc/systemd/system
+
+# Set your timezone (update this to your timezone, e.g., America/New_York, Europe/London, etc.)
+system_timezone: UTC
+
+# Network interface configuration
+# Tailscale typically creates a tailscale0 interface, but you may want to use your primary interface
+# Run 'ip addr' or 'ifconfig' on a node to see available interfaces
+# Common options: eth0, ens3, tailscale0, or the interface that has your Tailscale IP
+flannel_iface: tailscale0
+
+# CNI Configuration Options:
+# 
+# Option 1: Use Flannel (default, simplest)
+# flannel_iface: tailscale0  # (set above)
+#
+# Option 2: Use Calico (more advanced networking features)
+# calico_iface: tailscale0
+# calico_ebpf: false
+# calico_tag: v3.28.0
+#
+# Option 3: Use Cilium (most advanced, requires kernel >= 4.19.57)
+# cilium_iface: tailscale0
+# cilium_mode: native  # or 'routed' if nodes are on different subnets
+# cilium_tag: v1.16.0
+# cilium_hubble: true
+
+# Cluster pod CIDR (only needed if using Calico or Cilium)
+cluster_cidr: 10.52.0.0/16
+
+# Cilium BGP (disabled by default)
+cilium_bgp: false
+
+# Kube-VIP Configuration (High Availability for API server)
+# Virtual IP for the Kubernetes API server
+# IMPORTANT: Choose a Tailscale IP address that's not in use
+# You can pick any IP from your Tailscale subnet (check with: tailscale status)
+# Example: If your Tailscale network is 100.x.x.x, pick something like 100.x.x.222
+apiserver_endpoint: 100.64.0.222
+
+# Kube-VIP ARP (works well with Tailscale)
+kube_vip_arp: true
+kube_vip_bgp: false
+
+# Kube-VIP image version
+kube_vip_tag_version: v0.8.2
+
+# K3s Token (IMPORTANT: Generate a secure random token)
+# This token allows nodes to join the cluster
+# Generate one with: openssl rand -hex 32
+# Must be alphanumeric only
+k3s_token: CHANGE_ME_GENERATE_SECURE_TOKEN
+
+# Node IP configuration (automatically detected from flannel_iface)
+k3s_node_ip: "{{ ansible_facts[(cilium_iface | default(calico_iface | default(flannel_iface)))]['ipv4']['address'] }}"
+
+# Master taint (since we have only masters, no worker nodes)
+k3s_master_taint: false
+
+# Extra arguments for k3s servers and agents
+extra_args: >-
+  {{ '--flannel-iface=' + flannel_iface if calico_iface is not defined and cilium_iface is not defined else '' }}
+  --node-ip={{ k3s_node_ip }}
+
+extra_server_args: >-
+  {{ extra_args }}
+  {% if calico_iface is defined or cilium_iface is defined %}
+  --flannel-backend=none
+  --disable-network-policy
+  --cluster-cidr={{ cluster_cidr | default('10.52.0.0/16') }}
+  {% endif %}
+  --tls-san {{ apiserver_endpoint }}
+  --disable servicelb
+  --disable traefik
+
+extra_agent_args: >-
+  {{ extra_args }}
+
+# MetalLB Configuration (Load Balancer for services)
+metal_lb_type: native
+metal_lb_mode: layer2
+metal_lb_speaker_tag_version: v0.14.8
+metal_lb_controller_tag_version: v0.14.8
+
+# MetalLB IP range for LoadBalancer services
+# IMPORTANT: Choose an IP range from your Tailscale subnet
+# This should be a range that's not used by your nodes
+# Example: If your Tailscale network is 100.x.x.x, use something like 100.x.x.80-100.x.x.90
+metal_lb_ip_range: 100.64.0.80-100.64.0.90
+
+# Proxmox LXC (not using for this setup)
+proxmox_lxc_configure: false
+
+# Custom registries (not using for this setup)
+custom_registries: false
+
+
+
+
