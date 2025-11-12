@@ -1,7 +1,8 @@
 #!/bin/bash -euo pipefail
 
 export AWS_REGION="us-west-2"
-export AWS_PROFILE="mlops-club"
+export AWS_DEFAULT_REGION="${AWS_REGION}"
+export AWS_PROFILE="sandbox" # "mlops-club"
 
 THIS_DIR="$(dirname "${BASH_SOURCE[0]}")"
 
@@ -10,17 +11,36 @@ function cdk-deploy {
         --app "uv run $THIS_DIR/infra.py" \
         --profile "$AWS_PROFILE" \
         --region "$AWS_REGION" \
-        --stack-outputs "$THIS_DIR/stack-outputs.json"
+        --outputs-file "$THIS_DIR/stack-outputs.json"
 }
+
 
 function fetch-ssh-key {
     # delete the key first
-    chmod 777 "$THIS_DIR/ssh-key"
-    rm -rf "$THIS_DIR/ssh-key"
-
-    # then overwrite
+    chmod 777 "$THIS_DIR/ssh-key" 2>/dev/null || true
+    rm -rf "$THIS_DIR/ssh-key" || true
     mkdir -p "$THIS_DIR/ssh-key"
-    aws ssm get-parameter --name "/ec2/keypair/key-0431735ad7ab2e290" --with-decryption --query "Parameter.Value" --output text --profile "$AWS_PROFILE" --region "$AWS_REGION" > "$THIS_DIR/ssh-key/private-key.pem"
+
+    # get the key pair id from the key pair name
+    local kp_id
+    kp_id=$(aws ec2 describe-key-pairs \
+        --key-names "cluster-keypair" \
+        --query 'KeyPairs[0].KeyPairId' \
+        --output text \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION") || return 1
+
+    # Overwrite the ssh key using the key pair id
+    local param_path="/ec2/keypair/${kp_id}"
+    if ! aws ssm get-parameter \
+        --name "$param_path" --with-decryption \
+        --query "Parameter.Value" --output text \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" > "$THIS_DIR/ssh-key/private-key.pem"; then
+    echo "Parameter not found: $param_path" >&2
+    return 2
+    fi
+
     chmod 400 "$THIS_DIR/ssh-key/private-key.pem"
 }
 

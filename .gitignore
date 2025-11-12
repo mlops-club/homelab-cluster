@@ -1,3 +1,6 @@
 *env*
 *cdk*
 *pem*
+
+aws/stack-outputs.json
+aws/ssh-key/
