@@ -44,10 +44,12 @@ function fetch-ssh-key {
     chmod 400 "$THIS_DIR/ssh-key/private-key.pem"
 }
 
-# ./run connect-to-instance <index>
+# ./run connect-to-instance <index> [command...]
 # Connects to the EC2 instance at the given index (starts at 0)
+# If additional arguments are provided, they are executed as a command on the instance
 function connect-to-instance {
     local index="${1:-0}"
+    shift  # Remove the index from arguments
     local public_ip=$(aws cloudformation describe-stacks \
         --stack-name cluster \
         --profile "$AWS_PROFILE" \
@@ -59,8 +61,39 @@ function connect-to-instance {
         return 1
     fi
     
-    ssh -i "$THIS_DIR/ssh-key/private-key.pem" "ec2-user@${public_ip}"
+    if [ $# -gt 0 ]; then
+        # Execute the command on the remote instance
+        ssh -i "$THIS_DIR/ssh-key/private-key.pem" "ec2-user@${public_ip}" "$@"
+    else
+        # Interactive connection
+        ssh -i "$THIS_DIR/ssh-key/private-key.pem" "ec2-user@${public_ip}"
+    fi
 }
+
+# ./run fetch-kube-config <index>
+# Fetches the kubeconfig file from the instance at the given index
+function fetch-kube-config {
+
+    set -x
+    local index="${1:-0}"
+    local filename=~/.kube/k3s-usw2.yaml
+    
+    connect-to-instance "$index" sudo cat /etc/rancher/k3s/k3s.yaml > "$filename"
+
+    # merge the kubeconfig files
+    KUBECONFIG=~/.kube/config:$filename kubectl config view --flatten > ~/.kube/config-merged
+    mv ~/.kube/config-merged ~/.kube/config
+
+    # in ~/.kube/config, replace any occurences of https://127.0.0.1:6443 with https://<public-ip>:6443
+    local public_ip=$(aws cloudformation describe-stacks \
+        --stack-name cluster \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" \
+        --output json | jq -r ".Stacks[0].Outputs[]? | select(.OutputKey==\"Instance${index}PublicIP\") | .OutputValue")
+    sed -i.bak "s|https://127.0.0.1:6443|https://${public_ip}:6443|g" ~/.kube/config
+    rm -f ~/.kube/config.bak
+}
+
 
 function cdk-destroy {
     cdk destroy \

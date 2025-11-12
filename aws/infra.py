@@ -74,6 +74,10 @@ def create_security_group(scope: Construct, vpc: ec2.Vpc) -> ec2.SecurityGroup:
     sg = ec2.SecurityGroup(scope, "InstanceSecurityGroup", vpc=vpc)
     sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(22))
     sg.add_ingress_rule(sg, ec2.Port.all_traffic())
+
+    # kubectl
+    sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(6443))
+    
     return sg
 
 
