@@ -91,7 +91,7 @@ function fetch-kube-config {
         --region "$AWS_REGION" \
         --output json | jq -r ".Stacks[0].Outputs[]? | select(.OutputKey==\"Instance${index}PublicIP\") | .OutputValue")
     sed -i.bak "s|https://127.0.0.1:6443|https://${public_ip}:6443|g" ~/.kube/config
-    rm -f ~/.kube/config.bak
+    rm -f ~/.kube/config.bak "$filename"
 }
 
 
@@ -124,10 +124,90 @@ function all {
 }
 
 
+function get-public-ips {
+    # Get all instance public IPs from stack outputs
+    local stack_outputs_file="$THIS_DIR/stack-outputs.json"
+    
+    if [ ! -f "$stack_outputs_file" ]; then
+        echo "Stack outputs file not found: $stack_outputs_file" >&2
+        echo "Please run 'cdk-deploy' first to create the stack." >&2
+        return 1
+    fi
+    
+    # Extract public IPs and return as an array
+    jq --raw-output '.cluster | to_entries[] | select(.key | test("Instance[0-9]+PublicIP")) | .value' "$stack_outputs_file"
+}
+
+function create-inventory-file {
+    local output_file="${1:-$THIS_DIR/../k3s-ansible/inventory.yaml}"
+    
+    echo "Creating inventory file at: $output_file"
+    
+    # Get public IPs
+    local ips=()
+    while IFS= read -r ip; do
+        ips+=("$ip")
+    done < <(get-public-ips)
+    
+    if [ ${#ips[@]} -eq 0 ]; then
+        echo "No public IPs found. Make sure the CDK stack is deployed." >&2
+        return 1
+    fi
+    
+    echo "Found ${#ips[@]} instance(s): ${ips[*]}"
+    
+    # Use the first instance (index 0) as server, rest as agents
+    local server_ip="${ips[0]}"
+    local agent_ips=("${ips[@]:1}")
+    
+    # Create the inventory file
+    cat > "$output_file" << EOF
+---
+k3s_cluster:
+  children:
+    server:
+      hosts:
+        ${server_ip}:
+    agent:
+      hosts:
+EOF
+    
+    # Add agent hosts (if any)
+    for agent_ip in "${agent_ips[@]}"; do
+        echo "        ${agent_ip}:" >> "$output_file"
+    done
+    
+    # Add the rest of the configuration
+    cat >> "$output_file" << EOF
+
+  # Required Vars
+  vars:
+    ansible_user: ec2-user
+    ansible_ssh_private_key_file: ../aws/ssh-key/private-key.pem
+EOF
+    
+    echo "Inventory file created successfully at: $output_file"
+    echo "Server: $server_ip"
+    if [ ${#agent_ips[@]} -gt 0 ]; then
+        echo "Agents: ${agent_ips[*]}"
+    else
+        echo "No agent nodes (single-node cluster)"
+    fi
+}
+
+
 function help {
     echo "Usage: $0 <command>"
     echo "Commands:"
     echo "  default - Run the default command"
+    echo "  cdk-deploy - Deploy the CDK stack"
+    echo "  cdk-destroy - Destroy the CDK stack"
+    echo "  cdk-bootstrap - Bootstrap CDK in the region"
+    echo "  fetch-ssh-key - Download the SSH private key from AWS"
+    echo "  get-public-ips - Get the public IPs of all EC2 instances"
+    echo "  create-inventory-file [output_file] - Create inventory.yml for K3s ansible"
+    echo "  connect-to-instance <index> [command...] - SSH to instance (0-based index)"
+    echo "  fetch-kube-config <index> - Fetch kubeconfig from instance"
     echo "  help - Show this help message"
 }
 
