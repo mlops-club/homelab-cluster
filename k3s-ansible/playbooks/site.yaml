@@ -14,3 +14,71 @@
 
   roles:
     - k3s_agent
+
+- name: Fetch kubeconfig from K3s Server to local machine
+  hosts: server
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Copy kubeconfig to a temp location on the remote server
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /tmp/k3s.yaml
+        remote_src: true  # Indicate that the source file is on the remote machine
+        mode: "0644"      # Ensure the file is readable
+
+    - name: Replace 127.0.0.1 with server IP in remote kubeconfig
+      ansible.builtin.replace:
+        path: /tmp/k3s.yaml
+        regexp: '127\.0\.0\.1'
+        replace: "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+        # ^ use ansible_host if set, else inventory name (often the IP)
+    
+    - name: Fetch kubeconfig to local machine
+      ansible.builtin.fetch:
+        src: /tmp/k3s.yaml
+        dest: "{{ lookup('env','HOME') }}/.kube/k3s-ec2.yaml"
+        flat: yes       # Avoid creating host-specific subdirectories
+    
+    - name: Merge kubeconfig into local ~/.kube/config if it exists
+      delegate_to: localhost
+      become: false  # Don't use sudo on localhost
+      run_once: true
+      vars:
+        kube_dir: "{{ lookup('env','HOME') }}/.kube"
+        kubeconfig_main: "{{ kube_dir }}/config"
+        kubeconfig_new: "{{ kube_dir }}/k3s-ec2.yaml"
+      block:
+        - name: Ensure local .kube directory exists
+          ansible.builtin.file:
+            path: "{{ kube_dir }}"
+            state: directory
+            mode: "0700"
+
+        - name: Clean old k3s entries from kubeconfig before merging
+          ansible.builtin.shell: |
+            # Remove any existing default context/cluster/user that might be from old k3s
+            kubectl config delete-context default 2>/dev/null || true
+            kubectl config delete-cluster default 2>/dev/null || true  
+            kubectl config delete-user default 2>/dev/null || true
+          args:
+            executable: /bin/bash
+          ignore_errors: true
+
+        - name: Merge kubeconfig files
+          ansible.builtin.shell: |
+            if [ -f "{{ kubeconfig_main }}" ]; then
+              KUBECONFIG="{{ kubeconfig_main }}:{{ kubeconfig_new }}" \
+              kubectl config view --flatten > /tmp/config-merged
+              mv /tmp/config-merged "{{ kubeconfig_main }}"
+            else
+              cp "{{ kubeconfig_new }}" "{{ kubeconfig_main }}"
+            fi
+            rm -f "{{ kubeconfig_new }}" || true
+          args:
+            executable: /bin/bash
+        
+        - name: Set kubectl context to the new cluster
+          ansible.builtin.shell: kubectl config use-context default
+          args:
+            executable: /bin/bash
