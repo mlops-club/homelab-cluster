@@ -7,9 +7,9 @@
 
 - name: Install K3s Server, if not installed
   shell: |
-    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -s -
-  when: k3s_check.rc != 0
+    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644 --tls-san {{ ansible_host | default(inventory_hostname) }}" sh -s -
   changed_when: true
+  when: k3s_check.rc != 0
 
 - name: Read Server Node token
   ansible.builtin.slurp:
