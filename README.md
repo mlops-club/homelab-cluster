@@ -24,7 +24,12 @@ The setup assumes you have `uv` and AWS CLI installed.
   ./run create-inventory-file
   ```
 
-4. Setup the k3s Cluster using Ansible
+4. Install `kubectl` locally
+  ```bash
+  brew install kubectl
+  ```
+
+5. Setup the k3s Cluster using Ansible
   ```bash
   cd ../k3s-ansible
 
@@ -32,6 +37,10 @@ The setup assumes you have `uv` and AWS CLI installed.
   uvx --from ansible-core ansible-playbook playbooks/site.yaml
   ```
 
+6. Get cluster nodes locally:
+  ```bash
+  kubectl get nodes -o wide
+  ```
 
 ***
 
