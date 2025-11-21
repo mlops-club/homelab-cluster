@@ -1,0 +1,16 @@
+---
+- name: Install K3s Server
+  hosts: server
+  become: true
+  gather_facts: true
+
+  roles:
+    - k3s_server
+
+- name: Install K3s Agents
+  hosts: agent
+  become: true
+  gather_facts: true
+
+  roles:
+    - k3s_agent

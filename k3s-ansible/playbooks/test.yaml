@@ -1,0 +1,53 @@
+---
+- name: Get Server Public IP - Method 1 (from inventory)
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Get Server IP from inventory
+      ansible.builtin.set_fact:
+        k3s_server_ip: "{{ groups['server'][0] }}"
+
+    - name: Print Server IP from inventory
+      ansible.builtin.debug:
+        msg: "K3s Server IP (from inventory): {{ k3s_server_ip }}"
+
+- name: Get Server Public IP - Method 2 (from server facts)
+  hosts: server
+  gather_facts: true
+
+  tasks:
+    - name: Print all available IP addresses
+      ansible.builtin.debug:
+        msg: |
+          Default IPv4: {{ ansible_default_ipv4.address | default('Not available') }}
+          All IPv4 addresses: {{ ansible_all_ipv4_addresses | default('Not available') }}
+          Public IPv4: {{ ansible_ec2_public_ipv4 | default('Not available') }}
+
+    - name: Set server IP facts
+      ansible.builtin.set_fact:
+        server_public_ip: "{{ ansible_ec2_public_ipv4 | default(ansible_default_ipv4.address) }}"
+        server_private_ip: "{{ ansible_default_ipv4.address }}"
+
+    - name: Print server IP details
+      ansible.builtin.debug:
+        msg: |
+          Server Public IP: {{ server_public_ip }}
+          Server Private IP: {{ server_private_ip }}
+
+- name: Use Server IP from agents
+  hosts: agent
+  gather_facts: false
+
+  tasks:
+    - name: Get server IPs for agent configuration
+      ansible.builtin.set_fact:
+        k3s_server_url_public: "https://{{ hostvars[groups['server'][0]]['server_public_ip'] | default(groups['server'][0]) }}:6443"
+        k3s_server_url_private: "https://{{ hostvars[groups['server'][0]]['server_private_ip'] | default('not-available') }}:6443"
+
+    - name: Print K3s server URLs for agents
+      ansible.builtin.debug:
+        msg: |
+          K3s Server URL (Public): {{ k3s_server_url_public }}
+          K3s Server URL (Private): {{ k3s_server_url_private }}
+          Recommended for K3s agents: Use Private IP for better performance and security

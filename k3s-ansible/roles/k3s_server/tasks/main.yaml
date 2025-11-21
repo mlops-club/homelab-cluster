@@ -1,0 +1,43 @@
+---
+- name: Check if K3s is installed
+  ansible.builtin.shell: k3s --version
+  register: k3s_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Install K3s Server, if not installed
+  shell: |
+    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -s -
+  when: k3s_check.rc != 0
+  changed_when: true
+
+- name: Read Server Node token
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: k3s_server_node_token_raw
+  run_once: true
+
+- name: Set fact for K3s Server Node Token
+  ansible.builtin.set_fact:
+    k3s_server_node_token: "{{ k3s_server_node_token_raw.content | b64decode | trim }}"
+  run_once: true
+  delegate_facts: true
+
+- name: Check K3s Server Status
+  ansible.builtin.systemd_service:
+    name: k3s
+    state: started
+  register: k3s_service_status
+  ignore_errors: true
+
+- name: Display K3s Service Status
+  debug:
+    msg: "K3s service is {{ 'running' if k3s_service_status.status.ActiveState == 'active' else 'not running' }} on {{ inventory_hostname }}"
+
+- name: Get K3s Server Node Status
+  shell: "k3s kubectl get nodes -o wide"
+  register: server_node_status
+  changed_when: false
+
+- debug:
+    msg: "{{ server_node_status.stdout_lines }}"

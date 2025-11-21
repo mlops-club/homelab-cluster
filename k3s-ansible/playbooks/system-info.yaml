@@ -1,0 +1,33 @@
+---
+- name: Show System Info
+  hosts: k3s_cluster
+  become: true
+
+  tasks:
+    - name: Update System Packages
+      ansible.builtin.yum:
+        name: "*"
+        state: latest
+
+    - name: Install htop
+      ansible.builtin.yum:
+        name: htop
+        state: present
+    
+    - name: System Info
+      ansible.builtin.command: uname -a
+      register: system_info
+      changed_when: false     # Prevents showing as changed in Ansible output
+    
+    - name: Print System Info
+      ansible.builtin.debug:
+        msg: "{{ system_info.stdout }}"
+    
+    - name: Memory Usage
+      ansible.builtin.command: free -h
+      register: memory_info
+      changed_when: false     # Prevents showing as changed in Ansible output
+    
+    - name: Print Memory Usage
+      ansible.builtin.debug:
+        msg: "{{ memory_info.stdout }}"

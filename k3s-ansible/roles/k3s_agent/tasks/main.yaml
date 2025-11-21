@@ -1,0 +1,60 @@
+---
+- name: Check if k3s-agent is installed
+  ansible.builtin.shell: k3s agent --help
+  register: k3s_agent_check
+  ignore_errors: true
+  changed_when: false
+
+
+# - name: Get server private IP using AWS CLI
+#   shell: |
+#     aws ec2 describe-instances \
+#       --filters "Name=ip-address,Values={{ groups['server'][0] }}" "Name=instance-state-name,Values=running" \
+#       --query 'Reservations[0].Instances[0].PrivateIpAddress' \
+#       --output text
+#   register: server_private_ip_result
+#   run_once: true
+#   changed_when: false
+#   when: k3s_agent_check.rc != 0
+
+# - name: Debug ansible_facts variable
+#   debug:
+#     msg: "Ansible Facts for Server: {{ hostvars[groups['server'][0]]['ansible_facts'] }}"
+
+- name: Set server private IP
+  set_fact:
+    # k3s_server_host: "{{ server_private_ip_result.stdout }}"
+    # Get server private IP from Ansible facts:
+    # k3s_server_host: "{{ hostvars[groups['server'][0]]['ansible_default_ipv4']['address'] }}"   # DEPRECATED
+    k3s_server_host: "{{ hostvars[groups['server'][0]]['ansible_facts']['default_ipv4']['address'] }}"
+  run_once: true
+  changed_when: false
+  when: k3s_agent_check.rc != 0
+
+# - name: Debug K3s Server Host
+#   debug:
+#     msg: "K3s Server Host for Agent: {{ k3s_server_host }}"
+#   run_once: true
+#   changed_when: false
+    
+
+- name: Install K3s Agent, if not installed
+  shell: |
+    curl -sfL https://get.k3s.io | \
+      K3S_URL="https://{{ k3s_server_host }}:6443" \
+      K3S_TOKEN="{{ hostvars[groups['server'][0]]['k3s_server_node_token'] }}" \
+      sh -
+  when: k3s_agent_check.rc != 0
+  changed_when: true
+
+- name: Check K3s Agent Status
+  ansible.builtin.systemd_service:
+    name: k3s-agent
+    state: started
+  register: k3s_agent_service_status
+  ignore_errors: true
+  changed_when: false
+
+- name: Display K3s Agent Service Status
+  debug:
+    msg: "K3s Agent service is {{ 'running' if k3s_agent_service_status.status.ActiveState == 'active' else 'not running' }} on {{ inventory_hostname }}"

@@ -1,0 +1,17 @@
+# https://stackoverflow.com/questions/50788277/why-3-dashes-hyphen-in-yaml-file
+---
+k3s_cluster:
+  children:
+    server:
+      hosts:
+        34.214.27.117:
+    agent:
+      hosts:
+        34.219.67.197:
+        35.93.123.57:
+
+  # Required Vars
+  vars:
+    ansible_user: ec2-user
+    ansible_ssh_private_key_file: ../aws/ssh-key/private-key.pem
+    # ansible_python_interpreter: /usr/bin/python3
