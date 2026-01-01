@@ -1,0 +1,52 @@
+# Apply this manifest with: kubectl apply -f nginx-deployment/manifest-internal-tailscale-cloudflare.yaml
+# This creates an nginx deployment exposed via Tailscale LoadBalancer with automatic Cloudflare DNS A record management
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-internal-tailscale
+  labels:
+    app: nginx-internal-tailscale
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-internal-tailscale
+  template:
+    metadata:
+      labels:
+        app: nginx-internal-tailscale
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-internal-tailscale
+  labels:
+    app: nginx-internal-tailscale
+  annotations:
+    tailscale.com/expose: "true"
+    external-dns.alpha.kubernetes.io/hostname: nginx-internal.mlops-club.org
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: nginx-internal-tailscale

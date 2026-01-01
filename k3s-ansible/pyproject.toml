@@ -1,0 +1,22 @@
+[project]
+name = "k3s-ansible"
+version = "0.1.0"
+description = "Automated build of HA k3s Cluster with kube-vip and MetalLB"
+requires-python = ">=3.11"
+dependencies = [
+    "ansible-core>=2.16.2",
+    "netaddr>=0.10.1",
+    "jmespath>=1.0.1",
+    "jsonpatch>=1.33",
+    "kubernetes>=29.0.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "molecule>=6.0.3",
+    "molecule-plugins[vagrant]",
+    "pre-commit>=3.6.0",
+    "pre-commit-hooks>=4.5.0",
+]
+

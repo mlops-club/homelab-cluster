@@ -1,3 +1,12 @@
 *env*
 *cdk*
 *pem*
+
+*env*
+*.env
+*.log
+!.env.example
+
+*.DS_Store
+*.pem
+.cursor/debug.log

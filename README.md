@@ -1,255 +1,103 @@
-This repo is forked from [another](https://github.com/timothystewart6/k3s-ansible#). I'm using it for the MLOps Club homelab cluster.
+# MLOps Club Kubernetes Cluster 🐳
 
-Find all relevant custom files in `./_mlops-club/`.
+## Quick Start (set up cluster from scratch)
 
-We are using tailscale to bring all 3 nodes onto a virtual network using a VPN. There are three nodes:
-
-- `main@cluster-node-1`
-- `main@cluster-node-2`
-- `main@cluster-node-3`
-
-Install the tailscale client on your local machine, log in, and connect to the VPN in order to access each of these nodes.
-
-
-
-<br/>
-<br/>
-<br/>
-<br/>
-
-
-# Automated build of HA k3s Cluster with `kube-vip` and MetalLB
-
-![Fully Automated K3S etcd High Availability Install](https://img.youtube.com/vi/CbkEWcUZ7zM/0.jpg)
-
-This playbook will build an HA Kubernetes cluster with `k3s`, `kube-vip` and MetalLB via `ansible`.
-
-This is based on the work from [this fork](https://github.com/212850a/k3s-ansible) which is based on the work from [k3s-io/k3s-ansible](https://github.com/k3s-io/k3s-ansible). It uses [kube-vip](https://kube-vip.io/) to create a load balancer for control plane, and [metal-lb](https://metallb.universe.tf/installation/) for its service `LoadBalancer`.
-
-If you want more context on how this works, see:
-
-📄 [Documentation](https://technotim.live/posts/k3s-etcd-ansible/) (including example commands)
-
-📺 [Watch the Video](https://www.youtube.com/watch?v=CbkEWcUZ7zM)
-
-## 📖 k3s Ansible Playbook
-
-Build a Kubernetes cluster using Ansible with k3s. The goal is easily install a HA Kubernetes cluster on machines running:
-
-- [x] Debian (tested on version 11)
-- [x] Ubuntu (tested on version 22.04)
-- [x] Rocky (tested on version 9)
-
-on processor architecture:
-
-- [X] x64
-- [X] arm64
-- [X] armhf
-
-## ✅ System requirements
-
-- Control Node (the machine you are running `ansible` commands) must have Ansible 2.11+ If you need a quick primer on Ansible [you can check out my docs and setting up Ansible](https://technotim.live/posts/ansible-automation/).
-
-- You will also need to install collections that this playbook uses by running `ansible-galaxy collection install -r ./collections/requirements.yml` (important❗)
-
-- [`netaddr` package](https://pypi.org/project/netaddr/) must be available to Ansible. If you have installed Ansible via apt, this is already taken care of. If you have installed Ansible via `pip`, make sure to install `netaddr` into the respective virtual environment.
-
-- `server` and `agent` nodes should have passwordless SSH access, if not you can supply arguments to provide credentials `--ask-pass --ask-become-pass` to each command.
-
-## 🚀 Getting Started
-
-### 🍴 Preparation
-
-First create a new directory based on the `sample` directory within the `inventory` directory:
+Prerequisites
+1. fill out `.env.example` and rename it to `.env`
+2. install tailscale and join the tailnet
 
 ```bash
-cp -R inventory/sample inventory/my-cluster
+cd ./k3s-ansible
+./run deploy
 ```
 
-Second, edit `inventory/my-cluster/hosts.ini` to match the system information gathered above
-
-For example:
-
-```ini
-[master]
-192.168.30.38
-192.168.30.39
-192.168.30.40
-
-[node]
-192.168.30.41
-192.168.30.42
-
-[k3s_cluster:children]
-master
-node
-```
-
-If multiple hosts are in the master group, the playbook will automatically set up k3s in [HA mode with etcd](https://rancher.com/docs/k3s/latest/en/installation/ha-embedded/).
-
-Finally, copy `ansible.example.cfg` to `ansible.cfg` and adapt the inventory path to match the files that you just created.
-
-This requires at least k3s version `1.19.1` however the version is configurable by using the `k3s_version` variable.
-
-If needed, you can also edit `inventory/my-cluster/group_vars/all.yml` to match your environment.
-
-### ☸️ Create Cluster
-
-Start provisioning of the cluster using the following command:
+Now copy the kubeconfig file
 
 ```bash
-ansible-playbook site.yml -i inventory/my-cluster/hosts.ini
+ssh -t main@cluster-node-1 "sudo cat /etc/rancher/k3s/k3s.yaml" > k3s-ansible/kubeconfig
+# ^^^ prints it to the terminal, then copy and
+pbpaste > ~/.kube/config
+# ^^^ be sure to set server to https://cluster-node-1:6443
 ```
 
-After deployment control plane will be accessible via virtual ip-address which is defined in inventory/group_vars/all.yml as `apiserver_endpoint`
+Install various operators for DNS and networking
 
-### 🔥 Remove k3s cluster
+```
+cd ..
+./install-helm-charts.sh
+```
+
+Try deploying some services to nginx and testing the connection
 
 ```bash
-ansible-playbook reset.yml -i inventory/my-cluster/hosts.ini
+cd ./nginx-deployment
+./deploy-all.sh
 ```
 
->You should also reboot these nodes due to the VIP not being destroyed
+## K3s Deployment with Ansible
 
-## ⚙️ Kube Config
+- [`k3s-ansible/`](./k3s-ansible/). This was taken from [this git repo](https://github.com/timothystewart6/k3s-ansible) NO modifications were made, except:
+  - [./k3s-ansible/inventory/cluster/group_vars/all.yml](./k3s-ansible/inventory/cluster/group_vars/all.yml)
+  - [./k3s-ansible/inventory/cluster/hosts.ini](./k3s-ansible/inventory/cluster/hosts.ini)
+  - Deploy with `bash ./k3s-ansible/run deploy`.
+  - Teardown with `bash ./k3s-ansible/run reset`.
 
-To copy your `kube config` locally so that you can access your **Kubernetes** cluster run:
+Note, the `run` script uses `uv` and a `pyproject.toml` file which we added to make dependency management cleaner.
+
+In [`all.yml`](./k3s-ansible/inventory/cluster/group_vars/all.yml), we only changed a few values from default:
+- `system_timezone: America/Denver`
+- `flannel_iface: enp1s0` Because the NUCs use that interface instead of `eth0`.
+- `metal_lb_ip_range: 192.168.50.200-192.168.50.220` Because the NUCs are on a LAN with IPs in `192.168.50.(up to 199)` and the IPs assigned to pods by metallb must not overlap with those.
+
+
+## Networking with Cloudflare/Tailscale
+
+We managed to make both internal and external services accessible with pretty DNS names.
+
+The [`nginx-deployment/`](./nginx-deployment/) contains manifests which show how this is done.
+
+| Service Details | Resources | K8s Operators ([install script](./install-helm-charts.sh)) |
+|----------------|-----------|------------|
+| • **Reachable:** Internal only<br>• **DNS:** IP only<br>• **Protocol:** HTTP only<br><br>Service accessible only within the Tailscale network via an IP address. | • **URL:** [a tailscale IP known after deploy]<br>• **Manifest:** [manifest-internal-tailscale.yaml](./nginx-deployment/manifest-internal-tailscale.yaml)<br>• **Setup Guide:** [TAILSCALE_OPERATOR_SETUP.md](./nginx-deployment/TAILSCALE_OPERATOR_SETUP.md) | • **Tailscale operator:** Tunnels traffic to services within the Tailscale network |
+| • **Reachable:** Public<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTPS<br><br>Service accessible via a public domain name via Cloudflare Tunnel. | • **URL:** https://nginx.mlops-club.org/<br>• **Manifest:** [manifest-public-cloudflare.yaml](./nginx-deployment/manifest-public-cloudflare.yaml)<br>• **Setup Guide:** [CLOUDFLARE_TUNNEL_SETUP.md](./nginx-deployment/CLOUDFLARE_TUNNEL_SETUP.md) | • **Cloudflare Tunnel operator:** Creates secure tunnels from Cloudflare to internal services, enabling public HTTPS access |
+| • **Reachable:** Internal only<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTP<br><br>Service accessible via a public domain name via Tailscale and Cloudflare Tunnel. The DNS name resolves to a Tailscale private IP address. | • **URL:** http://nginx-internal.mlops-club.org/<br>• **Manifest:** [manifest-internal-tailscale-cloudflare.yaml](./nginx-deployment/manifest-internal-tailscale-cloudflare.yaml)<br>• **Setup Guide:** [EXTERNAL_DNS_TAILSCALE_SETUP.md](./nginx-deployment/EXTERNAL_DNS_TAILSCALE_SETUP.md) | • **External-DNS operator:** Creates/updates A records (subdomain to IP address) in Cloudflare that resolve to Tailscale private IPs<br>• **Tailscale operator:** Tunnels traffic to the internal Tailscale IP |
+
+## TLS/SSL with Traefik
+
+Cloudflare can manage a single wildcard TLS cert for us.
+
+> So we don't have to go through the pain of LetsEncrypt rate limits when we accidentally try to issue a cert more than 5 times in a day.
+
+![](./assets/origin-cert.png)
+
+![](./assets/sans.png)
+
+## Common issues
+
+### Reaching the control plane
+
+Set this line and make sure tailscale is enabled
+
+```yaml
+# ~/.kube/config
+clusters:
+  cluster:
+    server: https://cluster-node-1:6443
+```
+
+### TLS errors with kubectl
 
 ```bash
-scp debian@master_ip:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+$ kubectl get nodes -o wide
+Error from server (BadRequest): Unable to list "/v1, Resource=nodes": the server rejected our request for an unknown reason (get nodes)
 ```
-If you get file Permission denied, go into the node and temporarly run:
+
+Cause: When `./run reset` is run, new x509 certs are generated on the cluster nodes, which means the certs in `~/.kube/config` are out of date.
+
+Fix: run 
+
 ```bash
-sudo chmod 777 /etc/rancher/k3s/k3s.yaml
-```
-Then copy with the scp command and reset the permissions back to:
-```bash
-sudo chmod 600 /etc/rancher/k3s/k3s.yaml
+ssh -t main@cluster-node-1 "sudo cat /etc/rancher/k3s/k3s.yaml" > k3s-ansible/kubeconfig
 ```
 
-You'll then want to modify the config to point to master IP by running:
-```bash
-sudo nano ~/.kube/config
-```
-Then change `server: https://127.0.0.1:6443` to match your master IP: `server: https://192.168.1.222:6443`
-
-### 🔨 Testing your cluster
-
-See the commands [here](https://technotim.live/posts/k3s-etcd-ansible/#testing-your-cluster).
-
-### Variables
-
-| Role(s) | Variable | Type | Default | Required | Description |
-|---|---|---|---|---|---|
-| `download` | `k3s_version` | string | ❌ | Required | K3s binaries version |
-| `k3s_agent`, `k3s_server`, `k3s_server_post` | `apiserver_endpoint` | string | ❌ | Required | Virtual ip-address configured on each master |
-| `k3s_agent` | `extra_agent_args` | string | `null` | Not required | Extra arguments for agents nodes |
-| `k3s_agent`, `k3s_server` | `group_name_master` | string | `null` | Not required | Name othe master group |
-| `k3s_agent` | `k3s_token` | string | `null` | Not required | Token used to communicate between masters |
-| `k3s_agent`, `k3s_server` | `proxy_env` | dict | `null` | Not required | Internet proxy configurations |
-| `k3s_agent`, `k3s_server` | `proxy_env.HTTP_PROXY` | string | ❌ | Required | HTTP internet proxy |
-| `k3s_agent`, `k3s_server` | `proxy_env.HTTPS_PROXY` | string | ❌ | Required | HTTP internet proxy |
-| `k3s_agent`, `k3s_server` | `proxy_env.NO_PROXY` | string | ❌ | Required | Addresses that will not use the proxies |
-| `k3s_agent`, `k3s_server`, `reset` | `systemd_dir` | string | `/etc/systemd/system` | Not required | Path to systemd services |
-| `k3s_custom_registries` | `custom_registries_yaml` | string | ❌ | Required | YAML block defining custom registries. The following is an example that pulls all images used in this playbook through your private registries. It also allows you to pull your own images from your private registry, without having to use imagePullSecrets in your deployments. If all you need is your own images and you don't care about caching the docker/quay/ghcr.io images, you can just remove those from the mirrors: section. |
-| `k3s_server`, `k3s_server_post` | `cilium_bgp` | bool | `~` | Not required | Enable cilium BGP control plane for LB services and pod cidrs. Disables the use of MetalLB. |
-| `k3s_server`, `k3s_server_post` | `cilium_iface` | string | ❌ | Not required | The network interface used for when Cilium is enabled |
-| `k3s_server` | `extra_server_args` | string | `""` | Not required | Extra arguments for server nodes |
-| `k3s_server` | `k3s_create_kubectl_symlink` | bool | `false` | Not required | Create the kubectl -> k3s symlink |
-| `k3s_server` | `k3s_create_crictl_symlink` | bool | `true` | Not required | Create the crictl -> k3s symlink |
-| `k3s_server` | `kube_vip_arp` | bool | `true` | Not required | Enables kube-vip ARP broadcasts |
-| `k3s_server` | `kube_vip_bgp` | bool | `false` | Not required | Enables kube-vip BGP peering |
-| `k3s_server` | `kube_vip_bgp_routerid` | string | `"127.0.0.1"` | Not required | Defines the router ID for the kube-vip BGP server |
-| `k3s_server` | `kube_vip_bgp_as` | string | `"64513"` | Not required | Defines the AS for the kube-vip BGP server |
-| `k3s_server` | `kube_vip_bgp_peeraddress` | string | `"192.168.30.1"` | Not required | Defines the address for the kube-vip BGP peer |
-| `k3s_server` | `kube_vip_bgp_peeras` | string | `"64512"` | Not required | Defines the AS for the kube-vip BGP peer |
-| `k3s_server` | `kube_vip_bgp_peers` | list | `[]` | Not required | List of BGP peer ASN & address pairs |
-| `k3s_server` | `kube_vip_bgp_peers_groups` | list | `['k3s_master']` | Not required | Inventory group in which to search for additional `kube_vip_bgp_peers` parameters to merge. |
-| `k3s_server` | `kube_vip_iface` | string | `~` | Not required | Explicitly define an interface that ALL control nodes should use to propagate the VIP, define it here. Otherwise, kube-vip will determine the right interface automatically at runtime. |
-| `k3s_server` | `kube_vip_tag_version` | string | `v0.7.2` | Not required | Image tag for kube-vip |
-| `k3s_server` | `kube_vip_cloud_provider_tag_version` | string | `main` | Not required | Tag for kube-vip-cloud-provider manifest when enable |
-| `k3s_server`, `k3_server_post` | `kube_vip_lb_ip_range` | string | `~` | Not required | IP range for kube-vip load balancer |
-| `k3s_server`, `k3s_server_post` | `metal_lb_controller_tag_version` | string | `v0.14.3` | Not required | Image tag for MetalLB |
-| `k3s_server` | `metal_lb_speaker_tag_version` | string | `v0.14.3` | Not required | Image tag for MetalLB |
-| `k3s_server` | `metal_lb_type` | string | `native` | Not required | Use FRR mode or native. Valid values are `frr` and `native` |
-| `k3s_server` | `retry_count` | int | `20` | Not required | Amount of retries when verifying that nodes joined |
-| `k3s_server` | `server_init_args` | string | ❌ | Not required | Arguments for server nodes |
-| `k3s_server_post` | `bpf_lb_algorithm` | string | `maglev` | Not required | BPF lb algorithm |
-| `k3s_server_post` | `bpf_lb_mode` | string | `hybrid` | Not required | BPF lb mode |
-| `k3s_server_post` | `calico_blocksize` | int | `26` | Not required | IP pool block size |
-| `k3s_server_post` | `calico_ebpf` | bool | `false` | Not required | Use eBPF dataplane instead of iptables |
-| `k3s_server_post` | `calico_encapsulation` | string | `VXLANCrossSubnet` | Not required | IP pool encapsulation |
-| `k3s_server_post` | `calico_natOutgoing` | string | `Enabled` | Not required | IP pool NAT outgoing |
-| `k3s_server_post` | `calico_nodeSelector` | string | `all()` | Not required | IP pool node selector |
-| `k3s_server_post` | `calico_iface` | string | `~` | Not required | The network interface used for when Calico is enabled |
-| `k3s_server_post` | `calico_tag` | string | `v3.27.2` | Not required | Calico version tag |
-| `k3s_server_post` | `cilium_bgp_my_asn` | int | `64513` | Not required | Local ASN for BGP peer |
-| `k3s_server_post` | `cilium_bgp_peer_asn` | int | `64512` | Not required | BGP peer ASN |
-| `k3s_server_post` | `cilium_bgp_peer_address` | string | `~` | Not required | BGP peer address |
-| `k3s_server_post` | `cilium_bgp_neighbors` | list | `[]` | Not required | List of BGP peer ASN & address pairs |
-| `k3s_server_post` | `cilium_bgp_neighbors_groups` | list | `['k3s_all']` | Not required | Inventory group in which to search for additional `cilium_bgp_neighbors` parameters to merge. |
-| `k3s_server_post` | `cilium_bgp_lb_cidr` | string | `192.168.31.0/24` | Not required | BGP load balancer IP range |
-| `k3s_server_post` | `cilium_exportPodCIDR` | bool | `true` | Not required | Export pod CIDR |
-| `k3s_server_post` | `cilium_hubble` | bool | `true` | Not required | Enable Cilium Hubble |
-| `k3s_server_post` | `cilium_hubble` | bool | `true` | Not required | Enable Cilium Hubble |
-| `k3s_server_post` | `cilium_mode` | string | `native` | Not required | Inner-node communication mode (choices are `native` and `routed`) |
-| `k3s_server_post` | `cluster_cidr` | string | `10.52.0.0/16` | Not required | Inner-cluster IP range |
-| `k3s_server_post` | `enable_bpf_masquerade` | bool | `true` | Not required | Use IP masquerading |
-| `k3s_server_post` | `kube_proxy_replacement` | bool | `true` | Not required | Replace the native kube-proxy with Cilium |
-| `k3s_server_post` | `metal_lb_available_timeout` | string | `240s` | Not required | Wait for MetalLB resources |
-| `k3s_server_post` | `metal_lb_ip_range` | string | `192.168.30.80-192.168.30.90` | Not required | MetalLB ip range for load balancer |
-| `k3s_server_post` | `metal_lb_controller_tag_version` | string | `v0.14.3` | Not required | Image tag for MetalLB |
-| `k3s_server_post` | `metal_lb_mode` | string | `layer2` | Not required | Metallb mode (choices are `bgp` and `layer2`) |
-| `k3s_server_post` | `metal_lb_bgp_my_asn` | string | `~` | Not required | BGP ASN configurations |
-| `k3s_server_post` | `metal_lb_bgp_peer_asn` | string | `~` | Not required | BGP peer ASN configurations |
-| `k3s_server_post` | `metal_lb_bgp_peer_address` | string | `~` | Not required | BGP peer address |
-| `lxc` | `custom_reboot_command` | string | `~` | Not required | Command to run on reboot |
-| `prereq` | `system_timezone` | string | `null` | Not required | Timezone to be set on all nodes |
-| `proxmox_lxc`, `reset_proxmox_lxc` | `proxmox_lxc_ct_ids` | list | ❌ | Required | Proxmox container ID list |
-| `raspberrypi` | `state` | string | `present` | Not required | Indicates whether the k3s prerequisites for Raspberry Pi should be set up (possible values are `present` and `absent`) |
-
-
-### Troubleshooting
-
-Be sure to see [this post](https://github.com/timothystewart6/k3s-ansible/discussions/20) on how to troubleshoot common problems
-
-### Testing the playbook using molecule
-
-This playbook includes a [molecule](https://molecule.rtfd.io/)-based test setup.
-It is run automatically in CI, but you can also run the tests locally.
-This might be helpful for quick feedback in a few cases.
-You can find more information about it [here](molecule/README.md).
-
-### Pre-commit Hooks
-
-This repo uses `pre-commit` and `pre-commit-hooks` to lint and fix common style and syntax errors.  Be sure to install python packages and then run `pre-commit install`.  For more information, see [pre-commit](https://pre-commit.com/)
-
-## 🌌 Ansible Galaxy
-
-This collection can now be used in larger ansible projects.
-
-Instructions:
-
-- create or modify a file `collections/requirements.yml` in your project
-
-```yml
-collections:
-  - name: ansible.utils
-  - name: community.general
-  - name: ansible.posix
-  - name: kubernetes.core
-  - name: https://github.com/timothystewart6/k3s-ansible.git
-    type: git
-    version: master
-```
-
-- install via `ansible-galaxy collection install -r ./collections/requirements.yml`
-- every role is now available via the prefix `techno_tim.k3s_ansible.` e.g. `techno_tim.k3s_ansible.lxc`
-
-## Thanks 🤝
-
-This repo is really standing on the shoulders of giants. Thank you to all those who have contributed and thanks to these repos for code and ideas:
-
-- [k3s-io/k3s-ansible](https://github.com/k3s-io/k3s-ansible)
-- [geerlingguy/turing-pi-cluster](https://github.com/geerlingguy/turing-pi-cluster)
-- [212850a/k3s-ansible](https://github.com/212850a/k3s-ansible)
+then copy the resulting kubeconfig to the clipboard, and paste it to the right location with `pbpaste > ~/.kube/config`.

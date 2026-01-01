@@ -1,0 +1,338 @@
+#!/bin/bash -euxo pipefail
+# Taskfile-style script for k3s-ansible
+# Uses uv to manage Python dependencies and run Ansible commands
+
+# Debug logging function
+log_debug() {
+    local hypothesis_id="$1"
+    local location="$2"
+    local message="$3"
+    local data="$4"
+    local log_file="/Users/eric/repos/k3s-ansible/.cursor/debug.log"
+    local log_dir=$(dirname "$log_file")
+    
+    # Ensure directory exists
+    mkdir -p "$log_dir" 2>/dev/null
+    
+    local timestamp=$(date +%s%3N 2>/dev/null || date +%s000)
+    local log_entry="{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"$hypothesis_id\",\"location\":\"$location\",\"message\":\"$message\",\"data\":$data,\"timestamp\":$timestamp}"
+    echo "$log_entry" >> "$log_file" 2>/dev/null
+}
+
+# Default inventory path
+DEFAULT_INVENTORY="${INVENTORY:-inventory/cluster/hosts.ini}"
+
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed. Please install it first:"
+    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
+# Get inventory path (allow override via INVENTORY env var or -i flag)
+get_inventory() {
+    local inventory="$DEFAULT_INVENTORY"
+    # Check if -i flag is in the remaining arguments
+    local args=("$@")
+    for i in "${!args[@]}"; do
+        if [[ "${args[i]}" == "-i" ]] && [[ -n "${args[i+1]}" ]]; then
+            inventory="${args[i+1]}"
+            break
+        fi
+    done
+    echo "$inventory"
+}
+
+# Verify inventory file exists
+check_inventory() {
+    local inventory="$1"
+    if [[ ! -f "$inventory" ]]; then
+        echo "Error: Inventory file not found: $inventory"
+        echo "Please create it or set INVENTORY environment variable to point to your inventory file."
+        exit 1
+    fi
+}
+
+# Ensure uv dependencies are synced
+sync_dependencies() {
+    echo "Syncing Python dependencies..."
+    uv sync --quiet
+}
+
+# Install Ansible collections
+function install-collections {
+    # #region agent log
+    log_debug "A,E" "run:install-collections:entry" "install-collections called" "{\"function\":\"install-collections\"}"
+    # #endregion
+    
+    # Ensure dependencies are synced before using ansible-galaxy
+    sync_dependencies
+    
+    echo "Installing Ansible collections..."
+    
+    # #region agent log
+    local collections_file="./collections/requirements.yml"
+    log_debug "E" "run:install-collections:before_install" "Before ansible-galaxy install" "{\"collections_file\":\"$collections_file\",\"file_exists\":$([ -f "$collections_file" ] && echo true || echo false)}"
+    # #endregion
+    
+    # #region agent log
+    local ansible_collections_path_before
+    ansible_collections_path_before=$(uv run python -c "import os; print(os.environ.get('ANSIBLE_COLLECTIONS_PATH', 'NOT_SET'))" 2>/dev/null || echo "ERROR")
+    log_debug "B,C" "run:install-collections:env_check" "ANSIBLE_COLLECTIONS_PATH before install" "{\"ANSIBLE_COLLECTIONS_PATH\":\"$ansible_collections_path_before\"}"
+    # #endregion
+    
+    uv run python -m ansible.cli.galaxy collection install -r ./collections/requirements.yml
+    local install_exit_code=$?
+    
+    # #region agent log
+    log_debug "A,E" "run:install-collections:after_install" "After ansible-galaxy install" "{\"exit_code\":$install_exit_code}"
+    # #endregion
+    
+    # #region agent log
+    local ansible_collections_path_after
+    ansible_collections_path_after=$(uv run python -c "import os; print(os.environ.get('ANSIBLE_COLLECTIONS_PATH', 'NOT_SET'))" 2>/dev/null || echo "ERROR")
+    log_debug "B,C" "run:install-collections:env_after" "ANSIBLE_COLLECTIONS_PATH after install" "{\"ANSIBLE_COLLECTIONS_PATH\":\"$ansible_collections_path_after\"}"
+    
+    # Check where collections are actually installed
+    local collection_locations
+    collection_locations=$(uv run python -m ansible.cli.galaxy collection list 2>&1 | head -20 || echo "ERROR")
+    log_debug "B,C,D" "run:install-collections:collection_list" "Collections list after install" "{\"collections\":\"$collection_locations\"}"
+    # #endregion
+    
+    return $install_exit_code
+}
+
+# Check if required collections are installed
+check_collections() {
+    # #region agent log
+    log_debug "A" "run:check_collections:entry" "check_collections called" "{\"function\":\"check_collections\"}"
+    # #endregion
+    
+    # Ensure dependencies are synced before using ansible-galaxy
+    sync_dependencies
+    
+    local required_collections=("community.general" "ansible.utils" "ansible.posix" "kubernetes.core")
+    local missing_collections=()
+    
+    for collection in "${required_collections[@]}"; do
+        # #region agent log
+        log_debug "A" "run:check_collections:check" "Checking collection" "{\"collection\":\"$collection\"}"
+        # #endregion
+        
+        if ! uv run python -m ansible.cli.galaxy collection list "$collection" 2>&1 | grep -q "$collection"; then
+            missing_collections+=("$collection")
+            # #region agent log
+            log_debug "A" "run:check_collections:missing" "Collection missing" "{\"collection\":\"$collection\"}"
+            # #endregion
+        fi
+    done
+    
+    # #region agent log
+    local missing_list=""
+    if [[ ${#missing_collections[@]} -gt 0 ]]; then
+        missing_list="$(IFS=,; echo "${missing_collections[*]}")"
+    fi
+    log_debug "A" "run:check_collections:result" "Collections check result" "{\"missing_count\":${#missing_collections[@]},\"missing\":[$missing_list]}"
+    # #endregion
+    
+    if [[ ${#missing_collections[@]} -gt 0 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Deploy k3s cluster
+function deploy {
+    # #region agent log
+    log_debug "A" "run:deploy:entry" "deploy called" "{\"function\":\"deploy\",\"args\":\"$*\"}"
+    # #endregion
+    
+    local inventory
+    inventory=$(get_inventory "$@")
+    check_inventory "$inventory"
+    
+    # Ensure dependencies are synced
+    sync_dependencies
+    
+    # #region agent log
+    log_debug "A" "run:deploy:inventory" "Inventory determined" "{\"inventory\":\"$inventory\"}"
+    # #endregion
+    
+    # Check if collections are installed, install if missing
+    # #region agent log
+    local collections_check
+    collections_check=$(uv run python -m ansible.cli.galaxy collection list community.general 2>&1 | grep -q "community.general" && echo "FOUND" || echo "NOT_FOUND")
+    log_debug "A,B,C,D" "run:deploy:collections_check" "Collections check before deploy" "{\"community.general\":\"$collections_check\"}"
+    
+    local ansible_collections_path
+    ansible_collections_path=$(uv run python -c "import os; print(os.environ.get('ANSIBLE_COLLECTIONS_PATH', 'NOT_SET'))" 2>/dev/null || echo "ERROR")
+    log_debug "B,C" "run:deploy:env_check" "ANSIBLE_COLLECTIONS_PATH in deploy" "{\"ANSIBLE_COLLECTIONS_PATH\":\"$ansible_collections_path\"}"
+    # #endregion
+    
+    if ! check_collections; then
+        echo "Required Ansible collections are missing. Installing collections..."
+        # #region agent log
+        log_debug "A" "run:deploy:auto_install" "Auto-installing collections" "{\"triggered\":true}"
+        # #endregion
+        install-collections
+        local install_exit_code=$?
+        if [[ $install_exit_code -ne 0 ]]; then
+            echo "Error: Failed to install Ansible collections. Please run './run install-collections' manually."
+            # #region agent log
+            log_debug "A,E" "run:deploy:install_failed" "Collection installation failed" "{\"exit_code\":$install_exit_code}"
+            # #endregion
+            return $install_exit_code
+        fi
+    fi
+    
+    echo "Deploying k3s cluster using inventory: $inventory"
+    # Filter out -i and inventory path from args if present, pass rest to ansible-playbook
+    local args=()
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        if [[ "$arg" == "-i" ]]; then
+            skip_next=true
+            continue
+        fi
+        args+=("$arg")
+    done
+    
+    # #region agent log
+    local full_command="uv run python -m ansible.cli.playbook site.yml -i $inventory ${args[*]:-}"
+    log_debug "A,B,C,D" "run:deploy:before_exec" "Before executing ansible-playbook" "{\"command\":\"$full_command\"}"
+    # #endregion
+    
+    if [[ ${#args[@]} -gt 0 ]]; then
+        uv run python -m ansible.cli.playbook site.yml -i "$inventory" --ask-become-pass "${args[@]}"
+    else
+        uv run python -m ansible.cli.playbook site.yml -i "$inventory" --ask-become-pass
+    fi
+    local deploy_exit_code=$?
+    
+    # #region agent log
+    log_debug "A,B,C,D" "run:deploy:after_exec" "After executing ansible-playbook" "{\"exit_code\":$deploy_exit_code}"
+    # #endregion
+    
+    return $deploy_exit_code
+}
+
+# Reset k3s cluster
+function reset {
+    local inventory
+    inventory=$(get_inventory "$@")
+    check_inventory "$inventory"
+    
+    # Ensure dependencies are synced
+    sync_dependencies
+    
+    # Check if collections are installed, install if missing
+    if ! check_collections; then
+        echo "Required Ansible collections are missing. Installing collections..."
+        install-collections
+        local install_exit_code=$?
+        if [[ $install_exit_code -ne 0 ]]; then
+            echo "Error: Failed to install Ansible collections. Please run './run install-collections' manually."
+            return $install_exit_code
+        fi
+    fi
+    
+    echo "Resetting k3s cluster using inventory: $inventory"
+    local args=()
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        if [[ "$arg" == "-i" ]]; then
+            skip_next=true
+            continue
+        fi
+        args+=("$arg")
+    done
+    if [[ ${#args[@]} -gt 0 ]]; then
+        uv run python -m ansible.cli.playbook reset.yml -i "$inventory" --ask-become-pass "${args[@]}"
+    else
+        uv run python -m ansible.cli.playbook reset.yml -i "$inventory" --ask-become-pass
+    fi
+}
+
+# Reboot cluster nodes
+function reboot {
+    local inventory
+    inventory=$(get_inventory "$@")
+    check_inventory "$inventory"
+    
+    # Ensure dependencies are synced
+    sync_dependencies
+    
+    # Check if collections are installed, install if missing
+    if ! check_collections; then
+        echo "Required Ansible collections are missing. Installing collections..."
+        install-collections
+        local install_exit_code=$?
+        if [[ $install_exit_code -ne 0 ]]; then
+            echo "Error: Failed to install Ansible collections. Please run './run install-collections' manually."
+            return $install_exit_code
+        fi
+    fi
+    
+    echo "Rebooting cluster nodes using inventory: $inventory"
+    local args=()
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        if [[ "$arg" == "-i" ]]; then
+            skip_next=true
+            continue
+        fi
+        args+=("$arg")
+    done
+    if [[ ${#args[@]} -gt 0 ]]; then
+        uv run python -m ansible.cli.playbook reboot.yml -i "$inventory" --ask-become-pass "${args[@]}"
+    else
+        uv run python -m ansible.cli.playbook reboot.yml -i "$inventory" --ask-become-pass
+    fi
+}
+
+# Sync dependencies task (exposed as a command)
+function sync-deps {
+    sync_dependencies
+}
+
+# Show help
+function help {
+    echo "$0 <task> <args>"
+    echo ""
+    echo "Tasks:"
+    compgen -A function | grep -v "^_" | grep -v "^task:" | sort | cat -n
+    echo ""
+    echo "Examples:"
+    echo "  $0 deploy                    # Deploy cluster (default inventory: $DEFAULT_INVENTORY)"
+    echo "  $0 deploy -i inventory/other/hosts.ini  # Deploy with custom inventory"
+    echo "  $0 deploy -- --ask-pass     # Deploy with extra ansible-playbook args"
+    echo "  $0 reset                    # Reset cluster"
+    echo "  $0 reboot                   # Reboot nodes"
+    echo "  $0 install-collections      # Install Ansible collections"
+    echo "  $0 sync-deps                # Sync Python dependencies"
+    echo ""
+    echo "Environment variables:"
+    echo "  INVENTORY                   # Override default inventory path"
+}
+
+# Default task
+function default {
+    deploy "$@"
+}
+
+# Main entry point
+TIMEFORMAT="Task completed in %3lR"
+time "${@:-default}"
+

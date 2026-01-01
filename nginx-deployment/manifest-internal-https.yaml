@@ -1,0 +1,75 @@
+# Apply this manifest with: kubectl apply -f nginx-deployment/manifest-internal-https.yaml
+# This creates an nginx deployment exposed via Traefik Ingress with HTTPS/TLS encryption
+# The service is accessible internally via Tailscale through the traefik-internal LoadBalancer service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-internal-https
+  labels:
+    app: nginx-internal-https
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-internal-https
+  template:
+    metadata:
+      labels:
+        app: nginx-internal-https
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-internal-https
+  labels:
+    app: nginx-internal-https
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: nginx-internal-https
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-internal-https-ingress
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: nginx-internal-https.mlops-club.org
+    external-dns.alpha.kubernetes.io/target: 100.127.107.72
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - nginx-internal-https.mlops-club.org
+    secretName: cloudflare-origin-cert
+  rules:
+  - host: nginx-internal-https.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-internal-https
+            port:
+              number: 80
+
