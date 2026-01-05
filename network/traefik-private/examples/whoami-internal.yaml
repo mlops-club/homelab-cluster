@@ -1,0 +1,71 @@
+# Deploy whoami service behind private Traefik instance
+# Accessible at whoami.priv.mlops-club.org via Tailscale network with wildcard TLS from Traefik default cert.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  namespace: whoami-priv
+  labels:
+    app: whoami
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      containers:
+      - name: whoami
+        image: traefik/whoami
+        ports:
+        - containerPort: 80
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+  namespace: whoami-priv
+  labels:
+    app: whoami
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  selector:
+    app: whoami
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whoami
+  namespace: whoami-priv
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: whoami.priv.mlops-club.org
+    external-dns.alpha.kubernetes.io/target: traefik.priv.mlops-club.org
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+  - hosts:
+    - whoami.priv.mlops-club.org
+    secretName: priv-wildcard-tls
+  rules:
+  - host: whoami.priv.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: whoami
+            port:
+              number: 80
+

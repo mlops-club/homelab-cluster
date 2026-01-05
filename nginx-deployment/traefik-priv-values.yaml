@@ -1,0 +1,68 @@
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+  name: traefik-private
+
+deployment:
+  kind: Deployment
+
+service:
+  enabled: true
+  type: LoadBalancer
+  annotations:
+    tailscale.com/expose: "true"
+    external-dns.alpha.kubernetes.io/hostname: "traefik.priv.mlops-club.org"
+  spec:
+    loadBalancerClass: tailscale
+
+ports:
+  web:
+    port: 80
+    expose:
+      default: true
+    exposedPort: 80
+    protocol: TCP
+  websecure:
+    port: 443
+    expose:
+      default: true
+    exposedPort: 443
+    protocol: TCP
+    tls:
+      enabled: true
+
+entryPoints:
+  web:
+    address: ":8000/tcp"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":8443/tcp"
+    http:
+      tls:
+        enabled: true
+
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        secretName: priv-wildcard-tls
+
+additionalArguments:
+  - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+  - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+  - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+
+pilot:
+  enabled: false
+
+providers:
+  kubernetesCRD:
+    enabled: true
+  kubernetesIngress:
+    enabled: true
+

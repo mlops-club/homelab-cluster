@@ -62,6 +62,8 @@ The [`nginx-deployment/`](./nginx-deployment/) contains manifests which show how
 | • **URL:** https://nginx.mlops-club.org/<br>• **Reachable:** Public<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTPS<br><br>Service accessible via a public domain name via Cloudflare Tunnel. | • **Manifest:** [manifest-public-cloudflare.yaml](./nginx-deployment/manifest-public-cloudflare.yaml)<br>• **Setup Guide:** [CLOUDFLARE_TUNNEL_SETUP.md](./nginx-deployment/CLOUDFLARE_TUNNEL_SETUP.md) | • **Cloudflare Tunnel operator:** Creates secure tunnels from Cloudflare to internal services, enabling public HTTPS access |
 | • **URL:** http://nginx-internal.mlops-club.org/<br>• **Reachable:** Internal only<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTP<br><br>Service accessible via a public domain name via Tailscale and Cloudflare Tunnel. The DNS name resolves to a Tailscale private IP address. | • **Manifest:** [manifest-internal-tailscale-cloudflare.yaml](./nginx-deployment/manifest-internal-tailscale-cloudflare.yaml)<br>• **Setup Guide:** [EXTERNAL_DNS_TAILSCALE_SETUP.md](./nginx-deployment/EXTERNAL_DNS_TAILSCALE_SETUP.md) | • **External-DNS operator:** Creates/updates A records (subdomain to IP address) in Cloudflare that resolve to Tailscale private IPs<br>• **Tailscale operator:** Tunnels traffic to the internal Tailscale IP |
 
+![](2026-01-02-15-45-24.png)
+
 ## TLS/SSL with Traefik
 
 Cloudflare can manage a single wildcard TLS cert for us.
@@ -101,3 +103,18 @@ ssh -t main@cluster-node-1 "sudo cat /etc/rancher/k3s/k3s.yaml" > k3s-ansible/ku
 ```
 
 then copy the resulting kubeconfig to the clipboard, and paste it to the right location with `pbpaste > ~/.kube/config`.
+
+## Appendix: Traefik HTTPS Configuration Comparison
+
+When using Traefik for HTTPS termination, services can be exposed either internally (via Tailscale) or externally (via Cloudflare Tunnel). The following table compares the key differences:
+
+| Aspect | Internal HTTPS (private) | External HTTPS (public) |
+|--------|--------------------------|-------------------------|
+| **Ingress Class** | `traefik-private` | `traefik-pub` |
+| **TLS Secret** | `priv-wildcard-tls` (wildcard `*.priv.mlops-club.org`) | `cloudflare-origin-cert` (or ACME) |
+| **External-DNS Annotation** | ✅ Required (points to Traefik's Tailscale IP) | ❌ Not needed |
+| **Traefik Exposure** | Via Tailscale LoadBalancer | Via Cloudflare Tunnel Ingress |
+| **DNS Management** | External-DNS creates A record | Cloudflare Tunnel creates DNS |
+| **Access** | Tailscale network only | Public internet |
+
+Both configurations use the same Traefik Ingress class and TLS configuration. The key difference is how Traefik itself is exposed (Tailscale LoadBalancer vs Cloudflare Tunnel) and how DNS records are managed.

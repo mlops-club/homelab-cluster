@@ -1,0 +1,19 @@
+# External DNS values
+provider: cloudflare
+
+sources:
+  - service
+  - ingress
+
+serviceTypeFilter:
+  - LoadBalancer
+
+txtOwnerId: k3s-cluster
+
+# Environment-specific values are set via --set flags in helm-install.sh:
+# - env[0].name=CF_API_TOKEN
+# - env[0].valueFrom.secretKeyRef.name=cloudflare-api-token
+# - env[0].valueFrom.secretKeyRef.key=cloudflare_api_token
+# - cloudflare.zoneIdFilter=${CLOUDFLARE_ZONE_ID}
+# - domainFilters[0]=${CLOUDFLARE_DOMAIN}
+

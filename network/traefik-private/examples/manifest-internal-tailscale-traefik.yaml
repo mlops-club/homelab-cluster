@@ -1,0 +1,66 @@
+# Minimal private nginx behind Traefik with wildcard TLS on *.priv.mlops-club.org (via Traefik default certificate). Access via tailnet to Traefik Tailscale LoadBalancer.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-priv
+  labels:
+    app: nginx-priv
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-priv
+  template:
+    metadata:
+      labels:
+        app: nginx-priv
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27
+        ports:
+        - containerPort: 80
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-priv
+  labels:
+    app: nginx-priv
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  selector:
+    app: nginx-priv
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-priv
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    external-dns.alpha.kubernetes.io/hostname: nginx.priv.mlops-club.org
+spec:
+  ingressClassName: traefik-private
+  tls:
+  - hosts:
+    - nginx.priv.mlops-club.org
+    secretName: priv-wildcard-tls
+  rules:
+  - host: nginx.priv.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-priv
+            port:
+              number: 80
+
