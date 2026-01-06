@@ -88,8 +88,8 @@ graph LR
 
 | Record Type | Hostname | Target | Source | Managed By |
 |-------------|----------|--------|--------|------------|
-| **Tunnel Route** | `*.mlops-club.org` | Traefik service (ClusterIP) | Cloudflare Tunnel Ingress Controller | Cloudflare Tunnel |
-| **Tunnel Route** | `traefik.mlops-club.org` | Traefik service (ClusterIP) | [`traefik/traefik-ingress.yaml`](traefik/traefik-ingress.yaml) | Cloudflare Tunnel |
+| **Tunnel Route** | `*.mlops-club.org` | `k3s-tunnel` → Traefik service (ClusterIP) `http://traefik-public.traefik-public.svc.cluster.local:80` | Cloudflare Tunnel Ingress Controller | Cloudflare Tunnel |
+| **Tunnel Route** | `traefik.mlops-club.org` | `k3s-tunnel` → Traefik service (ClusterIP) `http://traefik-public.traefik-public.svc.cluster.local:80` | [`traefik/traefik-ingress.yaml`](traefik/traefik-ingress.yaml) | Cloudflare Tunnel |
 
 **How it works:**
 1. Cloudflare Tunnel Ingress Controller watches for Ingress resources with `ingressClassName: cloudflare-tunnel`

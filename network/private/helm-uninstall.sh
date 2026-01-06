@@ -1,7 +1,7 @@
 #!/bin/bash -euox pipefail
 
 # Main uninstallation script for private network components
-# Uninstalls: traefik-private → external-dns → tailscale-operator → cert-manager
+# Uninstalls: traefik-private → external-dns → tailscale-operator → reflector → cert-manager
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -11,19 +11,23 @@ echo "Uninstalling Private Network Components"
 echo "=========================================="
 
 echo ""
-echo "Step 1/4: Uninstalling Traefik Private..."
+echo "Step 1/5: Uninstalling Traefik Private..."
 helm uninstall traefik-private -n traefik-private || echo "Traefik Private not found or already uninstalled"
 
 echo ""
-echo "Step 2/4: Uninstalling External-DNS..."
+echo "Step 2/5: Uninstalling External-DNS..."
 helm uninstall external-dns -n traefik-private || echo "External-DNS not found or already uninstalled"
 
 echo ""
-echo "Step 3/4: Uninstalling Tailscale Operator..."
+echo "Step 3/5: Uninstalling Tailscale Operator..."
 helm uninstall tailscale-operator -n traefik-private || echo "Tailscale Operator not found or already uninstalled"
 
 echo ""
-echo "Step 4/4: Uninstalling cert-manager..."
+echo "Step 4/5: Uninstalling Reflector..."
+helm uninstall reflector -n traefik-private || echo "Reflector not found or already uninstalled"
+
+echo ""
+echo "Step 5/5: Uninstalling cert-manager..."
 helm uninstall cert-manager -n traefik-private || echo "cert-manager not found or already uninstalled"
 
 echo ""

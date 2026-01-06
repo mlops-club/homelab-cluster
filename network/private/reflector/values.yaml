@@ -1,0 +1,3 @@
+# Reflector values
+# Automatically replicates secrets with reflector annotations to all namespaces
+
