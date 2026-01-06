@@ -1,0 +1,15 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mlops-wildcard
+  namespace: traefik-public
+spec:
+  secretName: mlops-wildcard-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.mlops-club.org"
+    - mlops-club.org
+

@@ -12,7 +12,7 @@ helm repo add tailscale https://pkgs.tailscale.com/helmcharts
 helm repo update
 
 helm upgrade --install tailscale-operator tailscale/tailscale-operator \
-  --namespace tailscale \
+  --namespace traefik-private \
   --create-namespace \
   --values "${SCRIPT_DIR}/values.yaml" \
   --set-string oauth.clientId="${TAILSCALE_CLIENT_ID}" \

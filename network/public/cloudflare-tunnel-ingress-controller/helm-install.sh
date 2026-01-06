@@ -12,7 +12,7 @@ helm repo add strrl.dev https://helm.strrl.dev
 helm repo update
 
 helm upgrade --install --wait \
-  -n cloudflare-tunnel-ingress-controller --create-namespace \
+  -n traefik-public --create-namespace \
   cloudflare-tunnel-ingress-controller \
   strrl.dev/cloudflare-tunnel-ingress-controller \
   --values "${SCRIPT_DIR}/values.yaml" \

@@ -1,0 +1,47 @@
+---
+# Cloudflare Tunnel route: all *.mlops-club.org traffic → Traefik
+# This ingress configures the tunnel entry point for Traefik
+# Cloudflare Tunnel will route all *.mlops-club.org subdomains that don't have explicit DNS records to Traefik
+# Traefik then routes based on host headers
+# Cloudflare Tunnel handles TLS encryption at the edge
+# Cloudflare Tunnel connects to Traefik via HTTP (port 80) - no TLS needed internally
+# Cloudflare SSL/TLS mode should be set to "Full" or "Full (strict)"
+#
+# Note: The cloudflare tunnel ingress controller automatically creates tunnel routes
+# The controller routes *.mlops-club.org → traefik-public.traefik-public.svc.cluster.local:80
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-public-catchall
+  namespace: traefik-public
+  annotations:
+    # Note: We don't set origin-request-http-host-header to preserve the original Host header
+    # This allows Traefik to route based on the actual subdomain (e.g., whoami.mlops-club.org)
+    # No TLS verification needed since we're using HTTP (port 80)
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+  # Catch-all: route all *.mlops-club.org subdomains to Traefik
+  # The Cloudflare Tunnel will route all *.mlops-club.org that don't have explicit DNS records here
+  - host: "*.mlops-club.org"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: traefik-public
+            port:
+              number: 80
+  # Also handle traefik.mlops-club.org explicitly (base entry point)
+  - host: "traefik.mlops-club.org"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: traefik-public
+            port:
+              number: 80
+

@@ -1,6 +1,9 @@
 #!/bin/bash -euox pipefail
 
-source .env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+source "${PROJECT_ROOT}/.env"
 
 # Install cert-manager CRDs (using latest stable version)
 CERT_MANAGER_VERSION="v1.13.3"
@@ -12,7 +15,7 @@ helm repo update
 
 # Install cert-manager
 helm upgrade --install cert-manager jetstack/cert-manager \
-  --namespace cert-manager \
+  --namespace traefik-private \
   --create-namespace \
   --set installCRDs=false \
   --wait
@@ -20,7 +23,7 @@ helm upgrade --install cert-manager jetstack/cert-manager \
 # Create Cloudflare API token secret for cert-manager
 kubectl create secret generic cloudflare-api-token \
   --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \
-  --namespace cert-manager \
+  --namespace traefik-private \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Create ClusterIssuer for Let's Encrypt with Cloudflare DNS challenge

@@ -62,7 +62,7 @@ The [`nginx-deployment/`](./nginx-deployment/) contains manifests which show how
 | • **URL:** https://nginx.mlops-club.org/<br>• **Reachable:** Public<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTPS<br><br>Service accessible via a public domain name via Cloudflare Tunnel. | • **Manifest:** [manifest-public-cloudflare.yaml](./nginx-deployment/manifest-public-cloudflare.yaml)<br>• **Setup Guide:** [CLOUDFLARE_TUNNEL_SETUP.md](./nginx-deployment/CLOUDFLARE_TUNNEL_SETUP.md) | • **Cloudflare Tunnel operator:** Creates secure tunnels from Cloudflare to internal services, enabling public HTTPS access |
 | • **URL:** http://nginx-internal.mlops-club.org/<br>• **Reachable:** Internal only<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTP<br><br>Service accessible via a public domain name via Tailscale and Cloudflare Tunnel. The DNS name resolves to a Tailscale private IP address. | • **Manifest:** [manifest-internal-tailscale-cloudflare.yaml](./nginx-deployment/manifest-internal-tailscale-cloudflare.yaml)<br>• **Setup Guide:** [EXTERNAL_DNS_TAILSCALE_SETUP.md](./nginx-deployment/EXTERNAL_DNS_TAILSCALE_SETUP.md) | • **External-DNS operator:** Creates/updates A records (subdomain to IP address) in Cloudflare that resolve to Tailscale private IPs<br>• **Tailscale operator:** Tunnels traffic to the internal Tailscale IP |
 
-![](2026-01-02-15-45-24.png)
+![](./assets/cloudflare-tunnel-dns-records.png)
 
 ## TLS/SSL with Traefik
 
@@ -118,3 +118,24 @@ When using Traefik for HTTPS termination, services can be exposed either interna
 | **Access** | Tailscale network only | Public internet |
 
 Both configurations use the same Traefik Ingress class and TLS configuration. The key difference is how Traefik itself is exposed (Tailscale LoadBalancer vs Cloudflare Tunnel) and how DNS records are managed.
+
+## Cloudflare tunnel + Traefik routing
+
+We use `*.mlops-club.org` (single-level wildcard) to leverage Cloudflare's free Universal SSL certificates. The Cloudflare Tunnel Ingress Controller is configured to route all `*.mlops-club.org` subdomains that don't have explicit DNS records to Traefik. Traefik then routes traffic to the appropriate services based on host headers.
+
+**Architecture:**
+- **Cloudflare Tunnel Ingress**: Configured with `*.mlops-club.org` host rule, routes all matching subdomains → Traefik (port 80, HTTP)
+- **Traefik**: Routes based on host header (e.g., `whoami.mlops-club.org` → whoami service) using `web` entrypoint (HTTP)
+- **TLS**: 
+  - Edge: Cloudflare handles TLS termination (free Universal SSL for `*.mlops-club.org`)
+  - Origin: No TLS needed - Cloudflare Tunnel connects to Traefik via HTTP (port 80)
+
+**Configuration:**
+- Cloudflare Tunnel Ingress: [`network/public/traefik/traefik-ingress.yaml`](./network/public/traefik/traefik-ingress.yaml) - Routes `*.mlops-club.org` to Traefik on port 80
+- Services: Create standard Kubernetes Ingress resources with `ingressClassName: traefik-public` and `router.entrypoints: web` (no TLS needed)
+- Example: [`whoami-deployment/whoami-public.yaml`](./whoami-deployment/whoami-public.yaml)
+
+**Why `*.mlops-club.org` instead of `*.lab.mlops-club.org`?**
+- Cloudflare's free Universal SSL only covers single-level wildcards (`*.mlops-club.org`)
+- Multi-level wildcards (`*.lab.mlops-club.org`) require paid "Total TLS" or "Advanced Certificate Manager" ($10/month)
+- Single-level wildcard works perfectly for our use case: `app1.mlops-club.org`, `app2.mlops-club.org`, etc.

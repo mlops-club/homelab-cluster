@@ -1,0 +1,3 @@
+# Tailscale Operator values
+# Environment-specific values (oauth.clientId, oauth.clientSecret) are set via --set-string flags in helm-install.sh
+

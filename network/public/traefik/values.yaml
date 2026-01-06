@@ -1,0 +1,70 @@
+ingressClass:
+  enabled: true
+  name: traefik-public
+  isDefaultClass: false
+
+service:
+  type: ClusterIP
+  ports:
+    web:
+      port: 80
+      targetPort: 80
+    websecure:
+      port: 443
+      targetPort: 443
+
+ports:
+  web:
+    port: 80
+    expose:
+      default: true
+    exposedPort: 80
+    protocol: TCP
+  websecure:
+    port: 443
+    expose:
+      default: true
+    exposedPort: 443
+    protocol: TCP
+    tls:
+      enabled: true
+
+# Configure entrypoints
+# Cloudflare Tunnel connects via HTTPS, Traefik terminates TLS
+# Note: exposedPort 80 maps to entrypoint address :80 (Helm chart convention)
+entryPoints:
+  web:
+    address: ":80/tcp"
+    # No redirect - Cloudflare handles SSL termination
+  websecure:
+    address: ":443/tcp"
+    http:
+      tls:
+        enabled: true
+
+# Configure TLS store with wildcard certificate as default
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        secretName: mlops-wildcard-tls
+
+# Configure Kubernetes provider to watch all namespaces
+providers:
+  kubernetesIngress:
+    namespaces: []  # Empty array means watch all namespaces
+
+# Enable access logs for debugging
+accessLog:
+  enabled: true
+  format: json
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: keep
+      names:
+        User-Agent: keep
+        Host: keep
+        X-Forwarded-For: keep
+        X-Forwarded-Host: keep
+

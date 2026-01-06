@@ -10,5 +10,5 @@ kubectl get secret priv-wildcard-tls -n traefik-private -o yaml \
   | kubectl apply -n whoami-priv -f -
 
 # Deploy whoami service
-kubectl apply -f network/traefik-private/examples/whoami-internal.yaml
+kubectl apply -f network/private/examples/whoami-internal.yaml
 
