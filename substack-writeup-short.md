@@ -183,7 +183,7 @@ clusters:
     server: https://cluster-node-1:6443
 ```
 
-And you are set! Note that then end of the `~/.kube/config` file will look like this:
+And you are set! Note that the end of the `~/.kube/config` file will look like this:
 
 ```yaml
 users:
