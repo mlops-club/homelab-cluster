@@ -69,3 +69,22 @@ spec:
             port:
               number: 80
 
+# Ingress (LB) -> Service:80 -> Deployment -> Pods
+
+# CNAME: *.priv.mlops-club.org -> traefik.priv.mlops-club.org
+# A: traefik.priv.mlops-club.org -> Tailscale IP
+
+# Host: whoami-internal.priv.mlops-club.org
+# Host: whoami.priv.mlops-club.org
+# Host: whoami-internal-2.priv.mlops-club.org
+# Host: whoami-internal-3.priv.mlops-club.org
+
+
+Public Path:
+
+CNAME: *.mlops-club.org -> traefik.mlops-club.org
+CNAME: traefik.mlops-club.org -> <uuid>.cloudflare-tunnel.com (k3s-tunnel)
+
+k3s-tunnel -> http://traefik-public.traefik-public.svc.cluster.local:80
+
+client -> tunnel server (TLS termination w/ a CF-managed cert) -> traefik public service -> apps

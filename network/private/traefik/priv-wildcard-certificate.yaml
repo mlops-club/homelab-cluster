@@ -17,3 +17,8 @@ spec:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
 
+# 1. deploy traefik
+# 2. give it a tailnet IP
+# 3. create an A record for that tailnet IP
+# 4. register a cert for that A record
+# 5. propagate that cert into the rest of the namespaces

@@ -2,7 +2,7 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: mlops-wildcard
+d
   namespace: traefik-public
 spec:
   secretName: mlops-wildcard-tls
@@ -12,4 +12,8 @@ spec:
   dnsNames:
     - "*.mlops-club.org"
     - mlops-club.org
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
 
