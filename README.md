@@ -20,20 +20,6 @@ pbpaste > ~/.kube/config
 # ^^^ be sure to set server to https://cluster-node-1:6443
 ```
 
-Install various operators for DNS and networking
-
-```
-cd ..
-./install-helm-charts.sh
-```
-
-Try deploying some services to nginx and testing the connection
-
-```bash
-cd ./nginx-deployment
-./deploy-all.sh
-```
-
 ## K3s Deployment with Ansible
 
 - [`k3s-ansible/`](./k3s-ansible/). This was taken from [this git repo](https://github.com/timothystewart6/k3s-ansible) NO modifications were made, except:
@@ -48,19 +34,6 @@ In [`all.yml`](./k3s-ansible/inventory/cluster/group_vars/all.yml), we only chan
 - `system_timezone: America/Denver`
 - `flannel_iface: enp1s0` Because the NUCs use that interface instead of `eth0`.
 - `metal_lb_ip_range: 192.168.50.200-192.168.50.220` Because the NUCs are on a LAN with IPs in `192.168.50.(up to 199)` and the IPs assigned to pods by metallb must not overlap with those.
-
-
-## Networking with Cloudflare/Tailscale
-
-We managed to make both internal and external services accessible with pretty DNS names.
-
-The [`nginx-deployment/`](./nginx-deployment/) contains manifests which show how this is done.
-
-| Service Details | Files | K8s Operators ([install script](./install-helm-charts.sh)) |
-|----------------|-----------|------------|
-| • **URL:** [a tailscale IP known after deploy]<br>• **Reachable:** Internal only<br>• **DNS:** IP only<br>• **Protocol:** HTTP only<br><br>Service accessible only within the Tailscale network via an IP address. | • **Manifest:** [manifest-internal-tailscale.yaml](./nginx-deployment/manifest-internal-tailscale.yaml)<br>• **Setup Guide:** [TAILSCALE_OPERATOR_SETUP.md](./nginx-deployment/TAILSCALE_OPERATOR_SETUP.md) | • **Tailscale operator:** Tunnels traffic to services within the Tailscale network |
-| • **URL:** https://nginx.mlops-club.org/<br>• **Reachable:** Public<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTPS<br><br>Service accessible via a public domain name via Cloudflare Tunnel. | • **Manifest:** [manifest-public-cloudflare.yaml](./nginx-deployment/manifest-public-cloudflare.yaml)<br>• **Setup Guide:** [CLOUDFLARE_TUNNEL_SETUP.md](./nginx-deployment/CLOUDFLARE_TUNNEL_SETUP.md) | • **Cloudflare Tunnel operator:** Creates secure tunnels from Cloudflare to internal services, enabling public HTTPS access |
-| • **URL:** http://nginx-internal.mlops-club.org/<br>• **Reachable:** Internal only<br>• **DNS:** Pretty DNS<br>• **Protocol:** HTTP<br><br>Service accessible via a public domain name via Tailscale and Cloudflare Tunnel. The DNS name resolves to a Tailscale private IP address. | • **Manifest:** [manifest-internal-tailscale-cloudflare.yaml](./nginx-deployment/manifest-internal-tailscale-cloudflare.yaml)<br>• **Setup Guide:** [EXTERNAL_DNS_TAILSCALE_SETUP.md](./nginx-deployment/EXTERNAL_DNS_TAILSCALE_SETUP.md) | • **External-DNS operator:** Creates/updates A records (subdomain to IP address) in Cloudflare that resolve to Tailscale private IPs<br>• **Tailscale operator:** Tunnels traffic to the internal Tailscale IP |
 
 ![](./assets/cloudflare-tunnel-dns-records.png)
 
