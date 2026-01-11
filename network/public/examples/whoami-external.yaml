@@ -2,6 +2,11 @@
 # Accessible at whoami.mlops-club.org via Cloudflare Tunnel → Traefik
 # Cloudflare Tunnel routes all *.mlops-club.org to Traefik, Traefik routes based on host header
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whoami-external
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,14 +53,9 @@ metadata:
   name: whoami
   namespace: whoami-external
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   ingressClassName: traefik-public
-  tls:
-  - hosts:
-    - whoami.mlops-club.org
-    secretName: mlops-wildcard-tls
   rules:
   - host: whoami.mlops-club.org
     http:
@@ -70,7 +70,7 @@ spec:
 # Note: No Cloudflare Tunnel Ingress needed here!
 # The catch-all Cloudflare Tunnel Ingress routes all *.mlops-club.org to Traefik
 # Traefik handles routing based on the Host header (whoami.mlops-club.org → whoami service)
-# Traefik terminates TLS using the mlops-wildcard-tls certificate
-# Cloudflare Tunnel connects to Traefik via HTTPS (port 443)
+# Cloudflare Tunnel connects to Traefik via HTTP (port 80)
+# Cloudflare handles TLS termination at the edge
 # Cloudflare SSL/TLS mode should be set to "Full" or "Full (strict)"
 

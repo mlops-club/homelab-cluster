@@ -18,13 +18,11 @@ LOCAL_KUBECONFIG = Path.home() / ".kube" / "config"
 def main():
     print(f"Fetching kubeconfig from {SSH_USER}@{SSH_HOST}...")
     
-    # Fetch remote config (will prompt for sudo password)
-    print("You may be prompted for your sudo password...")
     temp_remote = f"/tmp/k3s-config-{datetime.now().strftime('%Y%m%d%H%M%S')}.yaml"
     try:
-        # Step 1: Copy to temp file on remote (will prompt for sudo password)
+        # Step 1: Copy to temp file on remote (passwordless sudo required)
         subprocess.run(
-            ["ssh", "-t", f"{SSH_USER}@{SSH_HOST}", f"sudo cp {REMOTE_KUBECONFIG} {temp_remote} && sudo chmod 644 {temp_remote}"],
+            ["ssh", f"{SSH_USER}@{SSH_HOST}", f"sudo cp {REMOTE_KUBECONFIG} {temp_remote} && sudo chmod 644 {temp_remote}"],
             check=True
         )
         # Step 2: Fetch the temp file (no sudo needed)

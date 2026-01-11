@@ -1,4 +1,9 @@
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik-public
+---
 # Cloudflare Tunnel route: all *.mlops-club.org traffic → Traefik
 # This ingress configures the tunnel entry point for Traefik
 # Cloudflare Tunnel will route all *.mlops-club.org subdomains that don't have explicit DNS records to Traefik

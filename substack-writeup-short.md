@@ -1,14 +1,94 @@
 # Phase 1: Setting up VPN and installing K3s
 
+If you follow this setup to the end, you should have:
+
+1. a set of 3 or more CPU nodes (Linux machines)
+2. that you can SSH into from your laptop from *anywhere* thanks to the Tailscale VPN we'll set up
+3. and when you SSH into them, you can use pretty DNS names like `cluster-node-1`, `cluster-node-2`, `cluster-node-3` instead of having to lookup their private IP addresses
+4. kubernetes will be installed onto each of the nodes, whether as part of the kubernetes control plane, or as a kubernetes worker agent, or both
+5. you will be have `kubectl` installed on your laptop, authenticated and networked with your cluster--which you can then use to launch deployments of containers onto your cluster via `kubectl apply`, `helm install`, etc.
+
+Prerequisites: you will need a few machines with linux installed on them. See `Step 1`.
+
 ## Step 1: get a bunch of nodes!
 
-I have 3 nodes in my homelab:
+I have 3 nodes in my homelab. Their host names are:
 
 - cluster-node-1
 - cluster-node-2
 - cluster-node-3
 
 I installed Ubuntu 24.04 LTS on each of them, and made an admin user called `main` and of course I configured the hostname to be `cluster-node-{i}`.
+
+### I recommend against Raspberry Pi's for a homelab
+
+Note, a lot of people go for Raspberry Pi's for homelabs, but I personally do not recommend them. The main reasons I was interested in Raspberry Pi's initially were:
+
+1. they are popular. Everyone talks about them.
+2. they are *seemingly* cheap.
+3. they are small and easy to store.
+4. they use the ARM CPU architecture, which means they do not draw much electricity--and homelabs can actually be very expensive due to their power draw!
+
+But, I found the following issues.
+
+1. **The cheapness is misleading.** Raspberry Pi's ended up not being very cheap. The board seems cheap. 
+
+    But then you have to buy a case, a power supply, a microSD card, and a bunch of other peripherals. And if you use a microSD card for storage, you will find that the SD cards degrade and fail fairly quickly.
+
+2. **ARM architecture actually became an issue.** I was interested in running the on-prem version of a tool called "Bento Cloud" called "Yatai"--it's a tool for running ML model endpoints on kubernetes--although, what it did is not super relevant to this story. 
+
+    The issue that arose was: the docker images used by Yatai's helm chart are for x86--not ARM! And it was difficult to build images that would run on ARM. Result: it ended up not being possible to run Yatai with the officially-maintained helm chart on my cluster. Sadly, not on my M-series MAC, either, because M chips are also ARM. 
+
+    I think the reasons for this are clear on reflection: most kubernetes workflows are not run on ARM in production. I mean, the world is moving that way, but most production workloads, especially in the ML space, still run on x86. So, it will probably be an issue for years to come if you want to run officially-supported versions of community software on your cluster, since most software is still built for x86.
+
+### I recommend NUCs instead
+
+I considered many options:
+
+1. **Mac Mini's.**  
+They have tons of unified memory—this is great for ML workloads. Very popular for running LLMs and other models, and their hardware is extremely efficient and quiet. But a couple things to consider: 
+
+    1. They use the ARM architecture (which is actually good from a power-draw and efficiency perspective).
+
+    2. If you want to use a Mac as a kubernetes agent/worker (which is extremely hard to do in itself!), there’s a major roadblock:  
+    Hardware acceleration—aka GPUs with Apple Metal—is **not supported in containers** (e.g., Docker).  
+    
+        So even if you could run kubernetes on Mac hardware, you won't be able to leverage its GPU hardware in your containers. Sad!
+    
+        As a result, I may add a non-K8s Mac Mini to my cluster later and just run models on it outside of kubernetes, perhaps using something like Ollama or llama.cpp locally.
+
+    3. Also, many production container images—especially for ML—are not always available for ARM, so there could be compatibility issues.
+
+2. **Full PCs.**  
+These are big and have a lot of power draw.  
+I’ve considered turning my gaming PC into a kubernetes node—which sounds fun, but in reality, it’s a bit of a rabbit hole. 
+
+    I’d likely have to go all-in on gaming on Linux using Wine, because running kubernetes or messing around with GPU passthrough on Windows via WSL is *not* a good experience. It can take many hours of debugging, and it’s hard to set things up so that they recover gracefully if the power is lost or the PC reboots. 
+
+    Sadly, even though gaming on Linux is decently supported nowadays, it’s still behind Windows, particularly if you want to install mods or stray off the “paved path.”  
+Most community mods are only supported on Windows, so this approach feels risky for a mixed-use PC.
+
+3. **NVidia DGX Spark or Orin/Jetson Nano's.**  
+    I explored these because I thought maybe I could get “real” GPUs in a cluster at a relatively low price.  
+    
+    But it turns out they’re fairly weak for the price—lots of limitations, especially in RAM, storage, and real-world ML workloads.  
+
+    For most people, they’re not the cost-effective option you hope for.
+
+4. **Intel NUCs.**  
+    These are small CPU-only computers—they look like little square mini-PCs.  
+    
+    They go for about $200-300 each, brand new--roughly the price of a Raspberry Pi 4 with all peripherals, but more powerful.
+
+    Best of all, they are x86, so they run all “regular” Linux workloads with full compatibility.  
+
+    And unlike Raspberry Pi, they come with everything you’d need separately (case, power supply, decent ethernet), often even with SSD/HDD storage out of the box, and they’re easy to expand and stack.  
+
+    In my experience, they’re just the right mix of small, cheap, reliable, and compatible for a home cluster.
+
+I decided to go 3 with NUCs.
+
+Later on, I will add a Network Attached Storage (to be a self-hosted blob store) and go all-in on Linux with my gaming PC to add an NVidia GPU node.
 
 ## Step 2: Set up Tailscale VPN free tier to make connecting to my nodes easy
 
@@ -33,7 +113,7 @@ curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up --auth-key
 
 I did this on each machine. It launches a persistent, durable daemon process managed by `systemd` which maintains a persistent connection to the tailscale network. In other words, even if you reboot the machine, it will automatically join itself back to the VPN!
 
-### Step 3: making passwordlessSSH easy
+### Step 3: making passwordless SSH easy
 
 Passwordless SSH is very convenient.
 
@@ -59,6 +139,29 @@ for node in {1..3}; do
 done
 ```
 
+### Step 3.5: Enable passwordless `sudo`
+
+At this point, regular `ssh` commands will work without a password prompt.
+
+But you still need to manually enter a password when running `sudo` commands. 
+
+We will want `sudo` to be passwordless as well.
+
+This will make it so no user-input is required for our utility scripts later, such as fully wiping and re-deploying the cluster. 
+
+So you can confidently walk away while these scripts run for ~10 minutes.
+
+To make automation scripts work without password prompts, you'll also want to enable passwordless `sudo` for the `main` user on all nodes:
+
+```bash
+# Add main user to sudoers with NOPASSWD on all cluster nodes
+for node in {1..3}; do
+    ssh "main@cluster-node-$node" "echo 'main ALL=(ALL:ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/main > /dev/null && sudo chmod 0440 /etc/sudoers.d/main"
+done
+```
+
+This creates a sudoers file that allows the `main` user to run any command with `sudo` without a password prompt. 
+
 ## Step 4: Install kubernetes! (specifically `k3s`)
 
 Kubernetes is a set of a few different serivces and daemons that all work together to coordinate the starting and stopping of containers across a set of machines. Google "kubernetes architecture" to learn more about the individual components.
@@ -69,7 +172,7 @@ There are a bunch of "distros" of kubernetes, which are basically different sets
 
 I went with `k3s` because it is popular and lightweight and easy to install. There are other distros that fit this description, though, so it was by no means the only choice.
 
-Typically, to install `k3s` on a set of 3 nodes, you'd run commands like this:
+Typically, to install `k3s` on a set of 3 nodes--where one is a master/server node and two are exclusively worker/agent nodes--you'd run commands like this:
 
 ```bash
 # on node 1 (a master node)
@@ -83,9 +186,11 @@ curl -sfL https://get.k3s.io | sh - --server https://cluster-node-1:6443 --token
 curl -sfL https://get.k3s.io | sh - --server https://cluster-node-1:6443 --token <token>
 ```
 
-Pretty easy!
+Pretty easy! 
 
-... But there are also several configuration options you may need/want to consider. So, I opted to do the install with Ansible instead. See the next section.
+However, note that there are more arguments you can set to specify things like IP address ranges, which CNI to use (flannel, calico, cilium, etc.), and other things.
+
+Rather than specify most of these values myself, I opted to do the install with Ansible instead. See the next section.
 
 ## Step 4.5: But actually, Ansible has some advantages
 
@@ -198,3 +303,13 @@ The `client-certificate-data` and `client-key-data` are the base64 encoded versi
 If you ever use Ansible to teardown and re-deploy k3s onto your cluster, then this certificate will no longer be regenerated and you will get SSL errors any time you use `kubectl`. To fix it, you will need to fetch this certificate from one of the cluster nodes again and update your local `~/.kube/config` file.
 
 ## Hooray! 🎉 🎉 🎉 You have a working kubernetes cluster on a network you can access from your anywhere!
+
+If you are joined to your tailnet, you can validate `kubectl` from your laptop like this:
+
+```bash
+$ kubectl get nodes                                                                                                   
+NAME             STATUS   ROLES                       AGE    VERSION
+cluster-node-1   Ready    control-plane,etcd,master   4h5m   v1.30.2+k3s2
+cluster-node-2   Ready    control-plane,etcd,master   4h5m   v1.30.2+k3s2
+cluster-node-3   Ready    control-plane,etcd,master   4h5m   v1.30.2+k3s2
+```

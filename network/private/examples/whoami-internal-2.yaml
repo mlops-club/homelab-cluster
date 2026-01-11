@@ -1,6 +1,11 @@
 # Deploy whoami service behind private Traefik instance
 # Accessible at whoami-internal.priv.mlops-club.org via Tailscale network with wildcard TLS from Traefik default cert.
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whoami-internal
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -207,9 +207,9 @@ function deploy {
     # #endregion
     
     if [[ ${#args[@]} -gt 0 ]]; then
-        uv run python -m ansible.cli.playbook site.yml -i "$inventory" --ask-become-pass "${args[@]}"
+        uv run python -m ansible.cli.playbook site.yml -i "$inventory" "${args[@]}"
     else
-        uv run python -m ansible.cli.playbook site.yml -i "$inventory" --ask-become-pass
+        uv run python -m ansible.cli.playbook site.yml -i "$inventory"
     fi
     local deploy_exit_code=$?
     
@@ -255,9 +255,9 @@ function reset {
         args+=("$arg")
     done
     if [[ ${#args[@]} -gt 0 ]]; then
-        uv run python -m ansible.cli.playbook reset.yml -i "$inventory" --ask-become-pass "${args[@]}"
+        uv run python -m ansible.cli.playbook reset.yml -i "$inventory" "${args[@]}"
     else
-        uv run python -m ansible.cli.playbook reset.yml -i "$inventory" --ask-become-pass
+        uv run python -m ansible.cli.playbook reset.yml -i "$inventory"
     fi
 }
 
@@ -296,9 +296,9 @@ function reboot {
         args+=("$arg")
     done
     if [[ ${#args[@]} -gt 0 ]]; then
-        uv run python -m ansible.cli.playbook reboot.yml -i "$inventory" --ask-become-pass "${args[@]}"
+        uv run python -m ansible.cli.playbook reboot.yml -i "$inventory" "${args[@]}"
     else
-        uv run python -m ansible.cli.playbook reboot.yml -i "$inventory" --ask-become-pass
+        uv run python -m ansible.cli.playbook reboot.yml -i "$inventory"
     fi
 }
 
