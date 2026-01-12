@@ -374,6 +374,41 @@ To use the wildcard certificate in other namespaces:
    kubectl describe clusterissuer letsencrypt-cloudflare
    ```
 
+4. **Certificate secret key mismatch**:
+   If you see errors like `specified key "api-token" not found in secret`, the secret may have been created with only one key. The secret needs both keys:
+   - `api-token`: used by cert-manager
+   - `cloudflare_api_token`: used by external-dns
+   
+   Fix by updating the secret:
+   ```bash
+   kubectl patch secret cloudflare-api-token -n traefik-private --type='json' \
+     -p='[{"op": "add", "path": "/data/api-token", "value": "'$(echo -n "${CLOUDFLARE_API_TOKEN}" | base64)'"}]'
+   ```
+   
+   Or recreate it with both keys:
+   ```bash
+   kubectl create secret generic cloudflare-api-token \
+     --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \
+     --from-literal=cloudflare_api_token="${CLOUDFLARE_API_TOKEN}" \
+     --namespace traefik-private \
+     --dry-run=client -o yaml | kubectl apply -f -
+   ```
+
+### DNS Issues
+
+1. **External-DNS conflicting record types**:
+   If External-DNS logs show "contains conflicting record type candidates; discarding CNAME record", there may be both CNAME and A records in Cloudflare for the same domain.
+   
+   - Check Cloudflare DNS for conflicting records
+   - Remove any CNAME records that conflict with A records managed by External-DNS
+   - External-DNS will update the A record automatically once conflicts are resolved
+
+2. **Stale DNS records**:
+   If DNS resolves to an old IP address:
+   - Check the current Traefik LoadBalancer IP: `kubectl get svc traefik-private -n traefik-private`
+   - Verify the A record in Cloudflare matches the EXTERNAL-IP
+   - External-DNS should update it automatically, but you can manually update if needed
+
 ### Tailscale Issues
 
 1. **Check Tailscale operator**:

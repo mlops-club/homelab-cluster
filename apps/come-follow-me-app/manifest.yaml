@@ -1,0 +1,94 @@
+# Deploy Come Follow Me App behind public Traefik instance
+# Accessible at cfm.mlops-club.org via Cloudflare Tunnel → Traefik
+# Cloudflare Tunnel routes all *.mlops-club.org to Traefik, Traefik routes based on host header
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: come-follow-me-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: come-follow-me-app
+  namespace: come-follow-me-app
+  labels:
+    app: come-follow-me-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: come-follow-me-app
+  template:
+    metadata:
+      labels:
+        app: come-follow-me-app
+    spec:
+      imagePullSecrets:
+      - name: harbor-creds
+      containers:
+      - name: come-follow-me-app
+        image: cr.priv.mlops-club.org/come-follow-me-app/come-follow-me-app:${CFM_APP_VERSION}
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: RS_SURVEY__GOOGLE_SHEETS_CREDENTIALS_PATH
+          value: /app/google-credentials.json
+        - name: RS_SURVEY__USE_CSV_SERVICE
+          value: "false"
+        - name: RS_SURVEY__GOOGLE_SHEETS_SPREADSHEET_ID
+          value: ${CFM_APP_SPREADSHEET_ID}
+        volumeMounts:
+        - name: google-credentials
+          mountPath: /app/google-credentials.json
+          subPath: google-credentials.json
+          readOnly: true
+      volumes:
+      - name: google-credentials
+        secret:
+          secretName: google-credentials
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: come-follow-me-app
+  namespace: come-follow-me-app
+  labels:
+    app: come-follow-me-app
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: come-follow-me-app
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: come-follow-me-app
+  namespace: come-follow-me-app
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik-public
+  rules:
+  - host: cfm.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: come-follow-me-app
+            port:
+              number: 8080
+# Note: No Cloudflare Tunnel Ingress needed here!
+# The catch-all Cloudflare Tunnel Ingress routes all *.mlops-club.org to Traefik
+# Traefik handles routing based on the Host header (cfm.mlops-club.org → come-follow-me-app service)
+# Cloudflare Tunnel connects to Traefik via HTTP (port 80)
+# Cloudflare handles TLS termination at the edge
+# Cloudflare SSL/TLS mode should be set to "Full" or "Full (strict)"
+

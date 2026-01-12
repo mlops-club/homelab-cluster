@@ -9,7 +9,11 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${PROJECT_ROOT}/.env"
 
 # create cloudflare API token secret if it doesn't exist
+# This secret needs both keys for different components:
+# - api-token: used by cert-manager
+# - cloudflare_api_token: used by external-dns
 kubectl create secret generic cloudflare-api-token \
+  --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \
   --from-literal=cloudflare_api_token="${CLOUDFLARE_API_TOKEN}" \
   --namespace traefik-private \
   --dry-run=client -o yaml | kubectl apply -f -

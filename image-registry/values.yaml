@@ -1,0 +1,61 @@
+containerSecurityContext:
+  runAsNonRoot: false
+  allowPrivilegeEscalation: true
+
+expose:
+  type: ingress
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: priv-wildcard-tls
+  ingress:
+    controller: default
+    className: traefik-private
+    hosts:
+      core: cr.priv.mlops-club.org
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+
+externalURL: https://cr.priv.mlops-club.org
+
+persistence:
+  enabled: true
+  resourcePolicy: "keep"
+  persistentVolumeClaim:
+    registry:
+    jobservice:
+      jobLog:
+        storageClass: nas-nfs
+        accessMode: ReadWriteOnce
+        size: 5Gi
+    database:
+      storageClass: nas-nfs
+      accessMode: ReadWriteOnce
+      size: 10Gi
+    redis:
+      storageClass: nas-nfs
+      accessMode: ReadWriteOnce
+      size: 5Gi
+    registry:
+      storageClass: nas-nfs
+      accessMode: ReadWriteOnce
+      size: 200Gi
+    trivy:
+      storageClass: nas-nfs
+      accessMode: ReadWriteOnce
+      size: 5Gi
+  imageChartStorage:
+    type: filesystem
+    filesystem:
+      rootdirectory: /storage
+
+notary:
+  enabled: false
+
+chartmuseum:
+  enabled: false
+
+trivy:
+  enabled: false

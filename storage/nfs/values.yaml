@@ -1,0 +1,2 @@
+# Values for csi-driver-nfs
+# StorageClass is applied in helm-install.sh to bind to the NAS export.
