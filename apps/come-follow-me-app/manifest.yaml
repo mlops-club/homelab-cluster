@@ -28,7 +28,7 @@ spec:
       - name: harbor-creds
       containers:
       - name: come-follow-me-app
-        image: cr.priv.mlops-club.org/come-follow-me-app/come-follow-me-app:${CFM_APP_VERSION}
+        image: cr.priv.mlops-club.org/come-follow-me-app/rs-app:${CFM_APP_VERSION}
         ports:
         - containerPort: 8080
           name: http
