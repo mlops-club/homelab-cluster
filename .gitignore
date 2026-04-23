@@ -1,13 +1,21 @@
-*env*
-*cdk*
-*pem*
-
-*env*
+# Secrets
 *.env
-*.log
+.env
+.env.*
 !.env.example
 !env.example
-
-*.DS_Store
+*credentials*.json
 *.pem
+*.key
+
+# Build artifacts
+*cdk*
+
+# Logs
+*.log
+
+# OS
+*.DS_Store
+
+# IDE
 .cursor/debug.log

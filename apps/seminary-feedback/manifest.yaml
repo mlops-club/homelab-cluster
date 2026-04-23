@@ -1,0 +1,87 @@
+# Deploy Seminary Feedback App behind public Traefik instance
+# Accessible at seminary.mlops-club.org via Cloudflare Tunnel -> Traefik
+# Cloudflare Tunnel routes all *.mlops-club.org to Traefik, Traefik routes based on host header
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seminary-feedback
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seminary-feedback
+  namespace: seminary-feedback
+  labels:
+    app: seminary-feedback
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seminary-feedback
+  template:
+    metadata:
+      labels:
+        app: seminary-feedback
+    spec:
+      imagePullSecrets:
+      - name: harbor-creds
+      containers:
+      - name: seminary-feedback
+        image: cr.priv.mlops-club.org/seminary-feedback/app:${SEMINARY_APP_VERSION}
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SEMINARY__GOOGLE_SHEETS_CREDENTIALS_PATH
+          value: /app/google-credentials.json
+        - name: SEMINARY__USE_CSV_SERVICE
+          value: "false"
+        - name: SEMINARY__GOOGLE_SHEETS_SPREADSHEET_ID
+          value: ${SEMINARY_SPREADSHEET_ID}
+        volumeMounts:
+        - name: google-credentials
+          mountPath: /app/google-credentials.json
+          subPath: google-credentials.json
+          readOnly: true
+      volumes:
+      - name: google-credentials
+        secret:
+          secretName: google-credentials
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seminary-feedback
+  namespace: seminary-feedback
+  labels:
+    app: seminary-feedback
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: seminary-feedback
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: seminary-feedback
+  namespace: seminary-feedback
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik-public
+  rules:
+  - host: seminary.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: seminary-feedback
+            port:
+              number: 8080
