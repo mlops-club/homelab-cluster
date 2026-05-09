@@ -1,0 +1,109 @@
+version: "1.0"
+project:
+  name: homelab-cluster
+  type: infrastructure
+  purpose: Bare-metal Kubernetes homelab running K3s on Intel NUCs with dual-stack networking (Tailscale + Cloudflare Tunnel), NFS storage, and private container registry
+  status: in-development
+
+core_documents:
+  description: Three documents every AI agent reads first (see AGENTS.md)
+  files:
+    - .ai/ai-context.md (project context, architecture, patterns)
+    - .ai/ai-rules.md (quality gates, coding standards, mandatory rules)
+    - .ai/index.yaml (this file - navigation and resource index)
+
+documentation:
+  location: .ai/docs/
+  primary_context: .ai/ai-context.md
+  primary_rules: .ai/ai-rules.md
+  files:
+    - FILE_HEADER_STANDARDS.md (file documentation requirements)
+    - ROADMAP_WORKFLOW.md (roadmap-driven development workflow)
+
+howto:
+  location: .ai/howto/
+  files:
+    - how-to-plan-a-feature.md (plan a new feature with three-document structure)
+    - how-to-continue-feature-work.md (resume work on an active feature)
+    - how-to-update-progress.md (update progress tracking documents)
+    - how-to-create-a-pr.md (create structured PRs, monitor checks, fix failures, resolve review threads)
+    - how-to-deploy-a-new-app.md (deploy a new application to the cluster)
+    - how-to-troubleshoot-kubernetes.md (debug K3s deployment failures)
+    - how-to-bootstrap-the-cluster.md (bootstrap the cluster from scratch)
+
+templates:
+  location: .ai/templates/
+  files:
+    - feature-progress-tracker.md.template (feature progress tracking)
+    - feature-milestone-breakdown.md.template (feature milestone details)
+    - feature-ai-context.md.template (feature architecture context)
+    - pr-body.md.template (structured pull request body format)
+
+key_files:
+  agents: AGENTS.md (primary AI agent entry point)
+  ai_context: .ai/ai-context.md (project context)
+  ai_rules: .ai/ai-rules.md (mandatory rules)
+  readme: README.md
+  claude_md: CLAUDE.md (Claude IDE config)
+  bootstrap: bootstrap.sh (main cluster bootstrap script)
+  bootstrap_guide: BOOTSTRAP.md (step-by-step setup guide)
+  env_template: env.example (environment variable template)
+  prek_config: prek.toml (git hook configuration)
+  pr_template: .github/PULL_REQUEST_TEMPLATE.md (PR template)
+
+scripts:
+  cluster:
+    bootstrap: bootstrap.sh (full cluster bootstrap - idempotent)
+    deploy: k3s-ansible/run deploy (deploy K3s cluster via Ansible)
+    reset: k3s-ansible/run reset (tear down K3s cluster)
+  network:
+    private: network/private/helm-install.sh (install private network stack)
+    public: network/public/helm-install.sh (install public network stack)
+  quality:
+    prek_pr: prek pr (run all quality checks before PR)
+    prek_run: prek run (run pre-commit hooks on staged files)
+
+existing_docs:
+  - README.md (high-level project overview and quick start)
+  - BOOTSTRAP.md (complete cluster setup from scratch)
+  - k3s-ansible/README.md (Ansible deployment documentation)
+  - network/private/README.md (private network architecture)
+  - network/public/README.md (public network architecture)
+  - storage/README.md (NFS and Harbor storage configuration)
+  - network/private/cert-manager/LETSENCRYPT_SETUP.md (cert-manager setup)
+  - network/private/tailscale/TAILSCALE_OPERATOR_SETUP.md (Tailscale operator setup)
+  - network/private/external-dns/EXTERNAL_DNS_TAILSCALE_SETUP.md (External-DNS setup)
+  - network/public/cloudflare-tunnel-ingress-controller/CLOUDFLARE_TUNNEL_SETUP.md (Cloudflare Tunnel setup)
+
+architecture:
+  pattern: bare-metal-k3s
+  networking: dual-stack (tailscale-private, cloudflare-public)
+  storage: nfs-nas-backed
+  registry: harbor
+
+roadmap:
+  location: .roadmap/
+  structure:
+    features:
+      planning: .roadmap/features/planning/
+      active: .roadmap/features/active/
+      completed: .roadmap/features/completed/
+
+  feature_templates:
+    progress_tracker: .ai/templates/feature-progress-tracker.md.template
+    milestone_breakdown: .ai/templates/feature-milestone-breakdown.md.template
+    ai_context: .ai/templates/feature-ai-context.md.template
+
+  guides:
+    plan_feature: .ai/howto/how-to-plan-a-feature.md
+    continue_feature: .ai/howto/how-to-continue-feature-work.md
+    update_progress: .ai/howto/how-to-update-progress.md
+    workflow_docs: .ai/docs/ROADMAP_WORKFLOW.md
+
+notes_for_agents:
+  - Update this file as the project structure evolves
+  - Read ai-context.md, ai-rules.md, and this file as your first action
+  - "Use prek pr (not pre-commit) for quality checks before PRs"
+  - "The .env file is gitignored and must be created manually from env.example"
+  - "bootstrap.sh is idempotent — safe to re-run"
+  - "Two Traefik instances: traefik-private (Tailscale) and traefik-public (Cloudflare Tunnel)"

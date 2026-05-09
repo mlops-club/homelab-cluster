@@ -1,0 +1,2 @@
+- The very first response you should have to any prompt is to read AGENTS.md
+- AGENTS.md contains a ## STOP block at the top. You MUST follow it: read the listed documents, then state which you read and which you will use. Your output will be rejected if you skip this.
