@@ -41,7 +41,7 @@ homelab-cluster uses a bare-metal K3s infrastructure architecture built on:
 - **Helm-install scripts** - Each network layer has a `helm-install.sh` that installs/upgrades all components in dependency order
 - **Namespace-per-app** - Each application gets its own Kubernetes namespace with dedicated resources
 - **Private/public split** - Two Traefik instances: `traefik-private` (Tailscale, `*.priv.mlops-club.org`) and `traefik-public` (Cloudflare, `*.mlops-club.org`)
-- **NAS-backed storage** - NFS CSI driver connects to a home NAS (UGOS) for persistent volumes; Harbor registry uses NAS storage
+- **NAS-backed storage** - NFS CSI driver connects to a home NAS (UGOS) for persistent volumes; Harbor registry uses NAS storage; static PVs for human-readable media paths (`/volume1/k8s-homelab/media/`)
 - **Mermaid diagrams** - Architecture diagrams use Mermaid in markdown
 
 ## Directory Structure
@@ -76,6 +76,7 @@ homelab-cluster/
 ├── storage/                    # Persistent storage & Harbor registry
 │   └── nfs/                    # NFS CSI driver (NAS-backed)
 ├── apps/                       # Business applications
+│   ├── audiobookshelf/         # Self-hosted audiobook server (NFS-backed media)
 │   ├── come-follow-me-app/     # Rust backend app
 │   └── seminary-feedback/      # Feedback collection app
 ├── aws/                        # AWS CDK infrastructure (DR/cloud fallback)
