@@ -91,6 +91,8 @@ ssh eric@nas "ls /volume1/k8s-homelab/media/audiobooks/Books/ | head -20"
 
 Open the Audiobookshelf web UI at `https://abs.priv.mlops-club.org` (requires Tailscale). Navigate to the library and click the scan button (circular arrow icon) to discover new files. Audiobookshelf also performs periodic automatic scans.
 
+![Audiobookshelf library with 28 books after scan](../../apps/audiobookshelf/docs/images/audiobookshelf-library-walkthrough.gif)
+
 ### Step 5: Fix Permissions (if needed)
 
 If Audiobookshelf cannot read the files, fix NFS directory permissions:
