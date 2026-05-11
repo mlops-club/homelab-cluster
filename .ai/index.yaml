@@ -31,6 +31,7 @@ howto:
     - how-to-troubleshoot-kubernetes.md (debug K3s deployment failures)
     - how-to-bootstrap-the-cluster.md (bootstrap the cluster from scratch)
     - how-to-add-audiobooks-to-audiobookshelf.md (transfer audiobooks from Libation to NAS for Audiobookshelf)
+    - how-to-connect-audiobookshelf-from-ios.md (connect to Audiobookshelf from iOS using AudioBooth)
 
 templates:
   location: .ai/templates/
