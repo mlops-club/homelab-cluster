@@ -15,7 +15,7 @@ repo = "builtin"
 hooks = [
   { id = "trailing-whitespace", priority = 0 },
   { id = "end-of-file-fixer", priority = 0 },
-  { id = "check-yaml", priority = 0 },
+  { id = "check-yaml", args = ["--allow-multiple-documents"], priority = 0 },
   { id = "check-json", priority = 0 },
   { id = "check-toml", priority = 0 },
   { id = "check-merge-conflict", priority = 0 },
