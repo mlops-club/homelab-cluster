@@ -1,0 +1,57 @@
+# {{FEATURE_NAME}} - AI Context
+
+**Purpose**: AI agent context document for implementing {{FEATURE_NAME}}
+
+**Scope**: {{FEATURE_SCOPE}}
+
+**Overview**: Context document for AI agents working on the {{FEATURE_NAME}} feature.
+    Provides architectural vision, key decisions, and implementation guidance.
+
+**Related**: MILESTONE_BREAKDOWN.md for implementation tasks, PROGRESS_TRACKER.md for current status
+
+---
+
+## Overview
+
+_High-level description of the {{FEATURE_NAME}} feature: what it does, why it exists, and what problem it solves._
+
+## Feature Vision
+
+- _Vision point 1: What the feature enables_
+- _Vision point 2: How it improves the project_
+- _Vision point 3: Long-term value_
+
+## Target Architecture
+
+### Core Components
+_Describe the key components, modules, or services this feature introduces or modifies._
+
+### Integration Points
+_Describe how this feature connects with existing code, APIs, or systems._
+
+## Key Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| _Decision 1_ | _Choice made_ | _Why this choice_ |
+
+## AI Agent Guidance
+
+### When Implementing
+- _Guidance point 1_
+- _Guidance point 2_
+- _Guidance point 3_
+
+### Common Patterns
+- _Pattern 1: Description_
+- _Pattern 2: Description_
+
+### Things to Avoid
+- _Anti-pattern 1_
+- _Anti-pattern 2_
+
+## Success Metrics
+
+- [ ] _Metric 1_
+- [ ] _Metric 2_
+- [ ] _Metric 3_

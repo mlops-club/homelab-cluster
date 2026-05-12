@@ -1,0 +1,75 @@
+<!--
+pr-body.md.template
+Purpose: Generates structured pull request descriptions for GitHub PRs
+Scope: All pull requests in the homelab-cluster repository
+Overview: Provides a four-section PR body format that gives reviewers sufficient context
+    to understand, evaluate, and approve changes. Sections cover what changed and why,
+    a detailed change list, risk assessment, and observable behavioral impact. HTML
+    comments within each section provide fill-in guidance and are invisible when rendered
+    on GitHub.
+
+Placeholders:
+  {{EXECUTIVE_SUMMARY}}: High-level description of the change and its motivation
+    - Type: string
+    - Example: "Adds a new app deployment for seminary-feedback behind Cloudflare Tunnel"
+    - Required: yes
+
+  {{LIST_OF_CHANGES}}: Bulleted list of logical changes grouped by file/module/concern
+    - Type: string (markdown bullet list)
+    - Example: "- Add `apps/seminary-feedback/manifest.yaml` — namespace, deployment, service, ingress"
+    - Required: yes
+
+  {{RISK_LEVEL}}: One of the predefined risk levels with brief explanation
+    - Type: string
+    - Example: "Feature addition — adds new files; no existing behavior modified"
+    - Required: yes
+
+  {{NEW_BEHAVIOR}}: Observable effect after merging
+    - Type: string
+    - Example: "Seminary feedback app accessible at seminary.mlops-club.org"
+    - Required: yes
+
+Usage:
+  1. Read this template when creating a PR
+  2. Fill in all four sections based on the diff and commit history
+  3. Pass the filled content as the --body argument to gh pr create
+  4. Do not include this header in the output
+
+Related: .ai/howto/how-to-create-a-pr.md
+-->
+
+## Executive Summary
+
+<!-- What changed, what was wrong before, and how this PR addresses it.
+     Write for a reviewer with no prior context. 2-4 sentences. -->
+
+{{EXECUTIVE_SUMMARY}}
+
+## List of Changes
+
+<!-- One bullet per logical change, grouped by file/module/concern.
+     Use "Add", "Update", "Remove", "Fix" as leading verbs. -->
+
+{{LIST_OF_CHANGES}}
+
+## Risk Assessment
+
+<!-- Pick ONE risk level and provide a brief explanation of blast radius.
+
+     Levels:
+     - Documentation only — no runtime impact
+     - Minor bug fix — limited blast radius, fixes existing broken behavior
+     - Feature addition — new capability, no existing behavior modified
+     - Behavior change — modifies existing runtime behavior
+     - Infrastructure change — affects cloud resources, CI/CD, or deployment
+     - Security-sensitive — touches authentication, authorization, secrets, or network policy
+-->
+
+{{RISK_LEVEL}}
+
+## New Behavior
+
+<!-- Observable effect after merging. What can users/systems do that they couldn't before?
+     For docs-only changes, write "No runtime behavior change." -->
+
+{{NEW_BEHAVIOR}}

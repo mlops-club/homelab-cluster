@@ -1,0 +1,75 @@
+# {{FEATURE_NAME}} - Milestone Breakdown
+
+**Purpose**: Detailed implementation breakdown of {{FEATURE_NAME}} into milestones
+
+**Scope**: Complete feature implementation across {{NUM_MILESTONES}} milestones
+
+**Overview**: Breaks the {{FEATURE_NAME}} feature into manageable milestones. Each milestone
+    is self-contained, testable, and incrementally builds toward the complete feature.
+
+**Related**: AI_CONTEXT.md for feature overview, PROGRESS_TRACKER.md for status tracking
+
+---
+
+## Overview
+
+This document breaks down the {{FEATURE_NAME}} feature into {{NUM_MILESTONES}} milestones. Each milestone is:
+- Self-contained and testable
+- Maintains working functionality
+- Incrementally builds toward the complete feature
+- Revertible if needed
+
+---
+
+## Milestone 1: _Title_
+
+**Objective**: _What this milestone delivers_
+
+**Tasks**:
+- [ ] _Task 1_
+- [ ] _Task 2_
+
+**Success Criteria**:
+- [ ] _Criterion 1_
+- [ ] _Criterion 2_
+
+**Files Changed**:
+```
+_List key files created or modified_
+```
+
+---
+
+_Repeat milestone sections as needed for {{NUM_MILESTONES}} milestones._
+
+---
+
+## Implementation Guidelines
+
+### Code Standards
+- Follow existing project conventions
+- Include appropriate tests for new functionality
+- Document public APIs and configuration options
+
+### Testing Requirements
+- Each milestone must pass existing tests
+- New functionality must include unit tests
+- Integration tests where applicable
+
+### Documentation Standards
+- Update relevant documentation with each milestone
+- Keep PROGRESS_TRACKER.md current after each milestone
+
+### Progress Tracking
+
+After completing each milestone:
+1. Record commit hash in PROGRESS_TRACKER.md
+2. Update milestone status
+3. Verify all success criteria met
+
+## Success Metrics
+
+- [ ] All {{NUM_MILESTONES}} milestones completed successfully
+- [ ] All tests passing
+- [ ] Documentation complete and accurate
+- [ ] Feature meets stated objectives from AI_CONTEXT.md
