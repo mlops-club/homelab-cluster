@@ -62,8 +62,6 @@ See `.ai/templates/` for reusable file templates.
 
 ## Common Operations
 
-This project uses shell scripts for automation. Use these instead of running raw commands.
-
 ### Cluster Operations
 
 | Command | Description |
@@ -73,12 +71,29 @@ This project uses shell scripts for automation. Use these instead of running raw
 | `cd k3s-ansible && ./run deploy` | Deploy K3s cluster via Ansible |
 | `cd k3s-ansible && ./run reset` | Tear down K3s cluster |
 
-### Network Operations
+### Infrastructure via Helmfile
+
+All Helm releases are managed through `helmfile.yaml.gotmpl`. Source `.env` before running any helmfile command.
 
 | Command | Description |
 |---------|-------------|
-| `./network/private/helm-install.sh` | Install/upgrade private network stack |
-| `./network/public/helm-install.sh` | Install/upgrade public network stack |
+| `source .env && helmfile -f helmfile.yaml.gotmpl diff` | Preview all changes against live cluster |
+| `source .env && helmfile -f helmfile.yaml.gotmpl apply` | Deploy only releases that changed |
+| `source .env && helmfile -f helmfile.yaml.gotmpl template` | Render all charts locally (no cluster needed) |
+| `source .env && helmfile -f helmfile.yaml.gotmpl list` | List all managed releases |
+| `source .env && helmfile -f helmfile.yaml.gotmpl -l name=harbor diff` | Diff a single release |
+| `source .env && helmfile -f helmfile.yaml.gotmpl -l name=harbor apply` | Apply a single release |
+| `helm rollback <release> <revision> -n <namespace>` | Roll back a release to a previous revision |
+| `helm history <release> -n <namespace>` | View release revision history |
+
+### Application Deployments
+
+Apps are deployed via per-app scripts, separate from helmfile:
+
+| Command | Description |
+|---------|-------------|
+| `./apps/come-follow-me-app/deploy.sh` | Deploy the Come Follow Me app |
+| `./apps/seminary-feedback/deploy.sh` | Deploy the Seminary Feedback app |
 
 ### Kubernetes Debugging
 
@@ -89,6 +104,8 @@ This project uses shell scripts for automation. Use these instead of running raw
 | `kubectl describe pod <pod> -n <namespace>` | Describe pod status |
 | `kubectl get events -n <namespace> --sort-by='.lastTimestamp'` | Recent events |
 | `kubectl get ingressroute -A` | List all Traefik IngressRoutes |
+| `kubectl get certificates -A` | List all TLS certificates and status |
+| `helm list -A` | List all Helm releases and their status |
 
 ### Quality Checks
 

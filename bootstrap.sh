@@ -1,5 +1,16 @@
 #!/bin/bash -euo pipefail
-# Complete idempotent cluster bootstrap and deployment script
+# bootstrap.sh
+# Purpose: Idempotent cluster bootstrap — from bare nodes to fully operational homelab
+# Scope: End-to-end setup: prerequisites, K3s deployment, kubeconfig, and infrastructure via helmfile
+# Overview: Orchestrates the full cluster lifecycle: validates prerequisites (tools, env vars, SSH),
+#     deploys K3s via Ansible, configures kubeconfig, then deploys all infrastructure Helm releases
+#     via helmfile (networking, storage, TLS, DNS, registry). Safe to re-run at any point.
+#     Application deployments (apps/*/deploy.sh) are separate and not managed by this script.
+# Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, ansible, .env with credentials
+# Exports: A fully operational K3s cluster with private/public networking, NFS storage, and Harbor registry
+# Usage: ./bootstrap.sh  |  DEPLOY_EXAMPLES=true ./bootstrap.sh
+# Related: helmfile.yaml.gotmpl, env.example, k3s-ansible/, BOOTSTRAP.md
+# Implementation: Sequential phases with early validation; helmfile handles Helm release orchestration
 
 set -euo pipefail
 

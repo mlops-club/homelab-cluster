@@ -46,6 +46,7 @@ key_files:
   readme: README.md
   claude_md: CLAUDE.md (Claude IDE config)
   bootstrap: bootstrap.sh (main cluster bootstrap script)
+  helmfile: helmfile.yaml.gotmpl (declarative spec for all Helm releases)
   bootstrap_guide: BOOTSTRAP.md (step-by-step setup guide)
   env_template: env.example (environment variable template)
   prek_config: prek.toml (git hook configuration)
@@ -53,12 +54,17 @@ key_files:
 
 scripts:
   cluster:
-    bootstrap: bootstrap.sh (full cluster bootstrap - idempotent)
+    bootstrap: bootstrap.sh (full cluster bootstrap - idempotent, calls helmfile apply)
     deploy: k3s-ansible/run deploy (deploy K3s cluster via Ansible)
     reset: k3s-ansible/run reset (tear down K3s cluster)
-  network:
-    private: network/private/helm-install.sh (install private network stack)
-    public: network/public/helm-install.sh (install public network stack)
+  infrastructure:
+    helmfile: helmfile.yaml.gotmpl (declarative spec for all 9 Helm releases)
+    diff: source .env && helmfile -f helmfile.yaml.gotmpl diff (preview changes)
+    apply: source .env && helmfile -f helmfile.yaml.gotmpl apply (deploy changes)
+    template: source .env && helmfile -f helmfile.yaml.gotmpl template (render locally)
+  apps:
+    come_follow_me: apps/come-follow-me-app/deploy.sh (deploy CFM app)
+    seminary_feedback: apps/seminary-feedback/deploy.sh (deploy Seminary app)
   quality:
     prek_pr: prek pr (run all quality checks before PR)
     prek_run: prek run (run pre-commit hooks on staged files)

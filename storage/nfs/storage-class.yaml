@@ -1,6 +1,14 @@
-# NFS StorageClass backed by NAS
-# Applied via: envsubst < storage-class.yaml | kubectl apply -f -
-# Requires env vars: NFS_STORAGE_CLASS_NAME, NFS_SERVER, NFS_SHARE, NFS_MOUNT_OPTIONS
+# storage-class.yaml
+# Purpose: StorageClass for dynamic NFS volume provisioning from the NAS
+# Scope: Cluster-wide storage — enables PersistentVolumeClaims backed by NFS
+# Overview: Defines a StorageClass using the nfs.csi.k8s.io provisioner that dynamically
+#     creates PersistentVolumes on the NAS. Applied via envsubst to inject NFS connection
+#     parameters from environment. Used by Harbor (registry, database, redis, jobservice)
+#     and any application requesting persistent storage.
+# Dependencies: csi-driver-nfs Helm release (provides the nfs.csi.k8s.io provisioner)
+# Exports: StorageClass "${NFS_STORAGE_CLASS_NAME}" (typically "nas-nfs")
+# Related: helmfile.yaml.gotmpl (csi-driver-nfs postsync hook), image-registry/values.yaml
+# Implementation: envsubst template — requires NFS_STORAGE_CLASS_NAME, NFS_SERVER, NFS_SHARE, NFS_MOUNT_OPTIONS
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:

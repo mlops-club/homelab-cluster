@@ -1,9 +1,23 @@
-# Helmfile: declarative spec for all Helm releases in the homelab cluster
+# helmfile.yaml.gotmpl
+# Purpose: Declarative specification of all Helm releases in the homelab cluster
+# Scope: All infrastructure Helm charts — storage, networking, TLS, DNS, ingress, and container registry
+# Overview: Manages 9 Helm releases with dependency ordering, CRD lifecycle hooks,
+#     and secret injection from environment variables. Uses Go templating (.gotmpl extension
+#     required by helmfile v1) with requiredEnv for secrets and env/default for optional config.
+#     Presync hooks handle CRDs and secrets; postsync hooks handle Certificates, ClusterIssuers,
+#     StorageClasses, and Ingress resources that exist outside Helm's release tracking.
+#     Chart versions are pinned to prevent accidental upgrades.
+# Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, .env with credentials
+# Exports: 9 Helm releases across 4 namespaces (traefik-private, traefik-public, nfs-system, image-registry)
+# Environment: Production homelab cluster (k3s on 3 Intel NUCs)
+# Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml
+# Implementation: helmfile v1 with Go templating, presync/postsync hooks for non-Helm resources
 #
 # Usage:
 #   source .env && helmfile --file helmfile.yaml.gotmpl diff     # preview changes
 #   source .env && helmfile --file helmfile.yaml.gotmpl apply    # deploy only what changed
 #   source .env && helmfile --file helmfile.yaml.gotmpl template # render locally (no cluster needed)
+#   source .env && helmfile --file helmfile.yaml.gotmpl -l name=harbor diff  # target single release
 #
 # Requires: helmfile, helm, helm-diff plugin
 #   helm plugin install https://github.com/databus23/helm-diff
