@@ -74,7 +74,7 @@ jobs:
           tar xzf helmfile.tar.gz helmfile && sudo mv helmfile /usr/local/bin/ && rm helmfile.tar.gz
 
           # helm-diff
-          helm plugin install https://github.com/databus23/helm-diff --verify=false
+          HELM_PLUGIN_SKIP_VERIFY=true helm plugin install https://github.com/databus23/helm-diff
 
           # kubeconform
           curl -fsSL -o kubeconform.tar.gz \
@@ -134,7 +134,7 @@ jobs:
           curl -fsSL -o helmfile.tar.gz \
             "https://github.com/helmfile/helmfile/releases/download/v0.169.2/helmfile_0.169.2_linux_amd64.tar.gz"
           tar xzf helmfile.tar.gz helmfile && sudo mv helmfile /usr/local/bin/ && rm helmfile.tar.gz
-          helm plugin install https://github.com/databus23/helm-diff --verify=false
+          HELM_PLUGIN_SKIP_VERIFY=true helm plugin install https://github.com/databus23/helm-diff
 
       - name: Configure kubeconfig
         run: |

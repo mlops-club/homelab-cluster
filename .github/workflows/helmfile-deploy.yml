@@ -67,7 +67,7 @@ jobs:
           tar xzf helmfile.tar.gz helmfile && sudo mv helmfile /usr/local/bin/ && rm helmfile.tar.gz
 
           # helm-diff
-          helm plugin install https://github.com/databus23/helm-diff --verify=false
+          HELM_PLUGIN_SKIP_VERIFY=true helm plugin install https://github.com/databus23/helm-diff
 
           # envsubst (used by helmfile hooks)
           sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
