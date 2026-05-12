@@ -13,6 +13,9 @@
 # Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml
 # Implementation: helmfile v1 with Go templating, presync/postsync hooks for non-Helm resources
 #
+# IMPORTANT: When adding/removing releases or modifying hooks, update the dependency graph
+# in README.md (search for HELMFILE-GRAPH-START).
+#
 # Usage:
 #   source .env && helmfile --file helmfile.yaml.gotmpl diff     # preview changes
 #   source .env && helmfile --file helmfile.yaml.gotmpl apply    # deploy only what changed

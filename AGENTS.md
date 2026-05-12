@@ -59,6 +59,7 @@ See `.ai/templates/` for reusable file templates.
 - [ ] All changes tested against the cluster (where applicable)
 - [ ] Documentation updated
 - [ ] No secrets committed
+- [ ] If helmfile.yaml.gotmpl was modified (releases added/removed, hooks changed), update the dependency graph in README.md (search for `HELMFILE-GRAPH-START`)
 
 ## Common Operations
 

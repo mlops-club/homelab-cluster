@@ -113,3 +113,4 @@ notes_for_agents:
   - "The .env file is gitignored and must be created manually from env.example"
   - "bootstrap.sh is idempotent — safe to re-run"
   - "Two Traefik instances: traefik-private (Tailscale) and traefik-public (Cloudflare Tunnel)"
+  - "When modifying helmfile.yaml.gotmpl, update the dependency graph in README.md (HELMFILE-GRAPH-START marker)"
