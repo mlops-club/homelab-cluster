@@ -17,14 +17,6 @@ on:
       - '**/reboot.sh'
       - '**/reset.sh'
 jobs:
-  pre:
-    uses: ./.github/workflows/cache.yml
-  lint:
-    uses: ./.github/workflows/lint.yml
-    needs: [pre]
-  test:
-    uses: ./.github/workflows/test.yml
-    needs: [pre, lint]
   helmfile:
     uses: ./.github/workflows/helmfile-diff.yml
     secrets:

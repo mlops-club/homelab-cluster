@@ -83,17 +83,19 @@ jobs:
           tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/ && rm kubeconform.tar.gz
 
       - name: Render templates
-        run: helmfile --file helmfile.yaml.gotmpl template > rendered.yaml 2>&1
+        run: helmfile --file helmfile.yaml.gotmpl template > rendered.yaml
 
       - name: Validate with kubeconform
         run: |
+          # Strip non-resource documents (e.g. Helm NOTES.txt) that kubeconform cannot parse
+          awk 'BEGIN{doc=""; sep=0} /^---/{if(doc ~ /kind:/){printf "---\n%s", doc}; doc=""; sep=1; next} {doc=doc $0 "\n"} END{if(doc ~ /kind:/){printf "---\n%s", doc}}' rendered.yaml > resources.yaml
           kubeconform \
             -summary \
             -output json \
             -skip CustomResourceDefinition \
             -ignore-missing-schemas \
             -kubernetes-version 1.30.0 \
-            rendered.yaml
+            resources.yaml
 
   live-diff:
     name: "Live Diff"
