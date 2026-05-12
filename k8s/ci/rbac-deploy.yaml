@@ -1,0 +1,40 @@
+# rbac-deploy.yaml
+# Purpose: Deploy ServiceAccount for CI helmfile apply operations
+# Scope: Cluster-wide write access for Helm release management
+# Overview: Creates a ServiceAccount with cluster-admin privileges for helmfile apply,
+#     which needs to create/update/delete any resource type including CRDs, ClusterRoles,
+#     and namespace-scoped resources across all namespaces. Access is protected by a
+#     GitHub Environment approval gate — the kubeconfig using this token is only available
+#     to workflows running in the "production" environment.
+# Dependencies: kubectl access to the cluster, ci-system namespace (created by rbac-readonly.yaml)
+# Exports: ServiceAccount ci-deploy in namespace ci-system, token Secret ci-deploy-token
+# Related: rbac-readonly.yaml, helmfile-deploy.yml, README.md (kubeconfig generation instructions)
+# Implementation: Long-lived ServiceAccount token via annotated Secret (k8s 1.24+ pattern)
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-deploy
+  namespace: ci-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-deploy-token
+  namespace: ci-system
+  annotations:
+    kubernetes.io/service-account.name: ci-deploy
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ci-deploy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: ci-deploy
+    namespace: ci-system

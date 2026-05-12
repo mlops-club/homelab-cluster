@@ -1,0 +1,67 @@
+# rbac-readonly.yaml
+# Purpose: Read-only ServiceAccount for CI helmfile diff operations
+# Scope: Cluster-wide read access for comparing Helm release state
+# Overview: Creates a ServiceAccount with a long-lived token and a ClusterRole
+#     granting get/list/watch on all resource types that helmfile diff reads.
+#     The token is exported as a kubeconfig for GitHub Actions PR diff workflows.
+#     Secrets access is required because Helm stores release state as Secrets.
+# Dependencies: kubectl access to the cluster
+# Exports: ServiceAccount ci-readonly in namespace ci-system, token Secret ci-readonly-token
+# Related: rbac-deploy.yaml, helmfile-diff.yml, README.md (kubeconfig generation instructions)
+# Implementation: Long-lived ServiceAccount token via annotated Secret (k8s 1.24+ pattern)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ci-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-readonly
+  namespace: ci-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-readonly-token
+  namespace: ci-system
+  annotations:
+    kubernetes.io/service-account.name: ci-readonly
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ci-readonly
+rules:
+  - apiGroups:
+      - ""
+      - apps
+      - batch
+      - networking.k8s.io
+      - rbac.authorization.k8s.io
+      - policy
+      - autoscaling
+      - cert-manager.io
+      - traefik.io
+      - traefik.containo.us
+      - storage.k8s.io
+      - apiextensions.k8s.io
+      - admissionregistration.k8s.io
+      - tailscale.com
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ci-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ci-readonly
+subjects:
+  - kind: ServiceAccount
+    name: ci-readonly
+    namespace: ci-system

@@ -25,3 +25,17 @@ jobs:
   test:
     uses: ./.github/workflows/test.yml
     needs: [pre, lint]
+  helmfile:
+    uses: ./.github/workflows/helmfile-diff.yml
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TAILSCALE_CLIENT_ID: ${{ secrets.TAILSCALE_CLIENT_ID }}
+      TAILSCALE_CLIENT_SECRET: ${{ secrets.TAILSCALE_CLIENT_SECRET }}
+      ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+      HARBOR_ADMIN_PASSWORD: ${{ secrets.HARBOR_ADMIN_PASSWORD }}
+      HARBOR_SECRET_KEY: ${{ secrets.HARBOR_SECRET_KEY }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_CLIENT_SECRET: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+      KUBECONFIG_READONLY_B64: ${{ secrets.KUBECONFIG_READONLY_B64 }}
