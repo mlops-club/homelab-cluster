@@ -1,0 +1,16 @@
+# NFS StorageClass backed by NAS
+# Applied via: envsubst < storage-class.yaml | kubectl apply -f -
+# Requires env vars: NFS_STORAGE_CLASS_NAME, NFS_SERVER, NFS_SHARE, NFS_MOUNT_OPTIONS
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ${NFS_STORAGE_CLASS_NAME}
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: ${NFS_SERVER}
+  share: ${NFS_SHARE}
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  - ${NFS_MOUNT_OPTIONS}

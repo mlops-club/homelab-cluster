@@ -1,0 +1,264 @@
+# Helmfile: declarative spec for all Helm releases in the homelab cluster
+#
+# Usage:
+#   source .env && helmfile --file helmfile.yaml.gotmpl diff     # preview changes
+#   source .env && helmfile --file helmfile.yaml.gotmpl apply    # deploy only what changed
+#   source .env && helmfile --file helmfile.yaml.gotmpl template # render locally (no cluster needed)
+#
+# Requires: helmfile, helm, helm-diff plugin
+#   helm plugin install https://github.com/databus23/helm-diff
+
+repositories:
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: emberstack
+    url: https://emberstack.github.io/helm-charts
+  - name: tailscale
+    url: https://pkgs.tailscale.com/helmcharts
+  - name: external-dns
+    url: https://kubernetes-sigs.github.io/external-dns/
+  - name: traefik
+    url: https://helm.traefik.io/traefik
+  - name: strrl.dev
+    url: https://helm.strrl.dev
+  - name: csi-driver-nfs
+    url: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+  - name: harbor
+    url: https://helm.goharbor.io
+
+---
+
+releases:
+
+  # ==========================================================================
+  # STORAGE
+  # ==========================================================================
+
+  # NFS CSI driver — enables dynamic PVC provisioning from NAS
+  - name: csi-driver-nfs
+    namespace: {{ env "NFS_NAMESPACE" | default "nfs-system" }}
+    createNamespace: true
+    chart: csi-driver-nfs/csi-driver-nfs
+    version: 4.12.1
+    wait: true
+    values:
+      - storage/nfs/values.yaml
+    hooks:
+      # Create the NAS-backed StorageClass after the CSI driver is running
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - "envsubst < storage/nfs/storage-class.yaml | kubectl apply -f -"
+
+  # ==========================================================================
+  # PRIVATE NETWORK (Tailscale + cert-manager + Traefik)
+  # ==========================================================================
+
+  # cert-manager — TLS certificate automation via Let's Encrypt
+  # CRDs are applied separately (Helm doesn't upgrade CRDs)
+  # Keep CRD version in sync with chart version — update both together!
+  - name: cert-manager
+    namespace: traefik-private
+    createNamespace: true
+    chart: jetstack/cert-manager
+    version: v1.19.2
+    wait: true
+    set:
+      - name: installCRDs
+        value: "false"
+    hooks:
+      # Install CRDs before the chart (Helm won't upgrade CRDs, so we manage them here)
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args:
+          - "apply"
+          - "-f"
+          - "https://github.com/cert-manager/cert-manager/releases/download/v1.19.2/cert-manager.crds.yaml"
+      # Create the Cloudflare API token secret used by cert-manager and external-dns
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl create secret generic cloudflare-api-token \
+              --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \
+              --from-literal=cloudflare_api_token="${CLOUDFLARE_API_TOKEN}" \
+              --namespace traefik-private \
+              --dry-run=client -o yaml | kubectl apply -f -
+      # Create ClusterIssuer for Let's Encrypt + Cloudflare DNS challenge
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            envsubst < network/private/cert-manager/cluster-issuer.yaml | kubectl apply -f -
+            kubectl wait --for=condition=Ready clusterissuer/letsencrypt-cloudflare --timeout=60s || echo "ClusterIssuer may take a moment to become ready"
+
+  # Reflector — replicates TLS secrets across namespaces
+  - name: reflector
+    namespace: traefik-private
+    chart: emberstack/reflector
+    version: 9.1.45
+    wait: true
+    values:
+      - network/private/reflector/values.yaml
+
+  # Tailscale operator — exposes services to the tailnet
+  - name: tailscale-operator
+    namespace: traefik-private
+    chart: tailscale/tailscale-operator
+    version: 1.92.5
+    wait: true
+    values:
+      - network/private/tailscale/values.yaml
+    set:
+      - name: oauth.clientId
+        value: {{ requiredEnv "TAILSCALE_CLIENT_ID" | quote }}
+      - name: oauth.clientSecret
+        value: {{ requiredEnv "TAILSCALE_CLIENT_SECRET" | quote }}
+
+  # External-DNS — creates Cloudflare DNS records for Tailscale services
+  - name: external-dns
+    namespace: traefik-private
+    chart: external-dns/external-dns
+    version: 1.20.0
+    wait: true
+    timeout: 60
+    values:
+      - network/private/external-dns/values.yaml
+    set:
+      - name: "env[0].name"
+        value: "CF_API_TOKEN"
+      - name: "env[0].valueFrom.secretKeyRef.name"
+        value: "cloudflare-api-token"
+      - name: "env[0].valueFrom.secretKeyRef.key"
+        value: "cloudflare_api_token"
+      - name: "domainFilters[0]"
+        value: "priv.{{ requiredEnv "CLOUDFLARE_DOMAIN" }}"
+      - name: "cloudflare.zoneIdFilter"
+        value: {{ requiredEnv "CLOUDFLARE_ZONE_ID" | quote }}
+
+  # Traefik Private — ingress controller for *.priv.mlops-club.org (Tailscale)
+  # Traefik puts 33 CRDs in Helm's crds/ dir, which Helm never upgrades.
+  # We skip them here and apply them in a presync hook so upgrades work.
+  # Only this release manages CRDs — traefik-public skips them too.
+  - name: traefik-private
+    namespace: traefik-private
+    chart: traefik/traefik
+    version: 38.0.2
+    wait: true
+    values:
+      - network/private/traefik/values.yaml
+    needs:
+      - traefik-private/cert-manager
+      - traefik-private/reflector
+      - traefik-private/tailscale-operator
+      - traefik-private/external-dns
+    hooks:
+      # Apply Traefik CRDs (shared by both traefik-private and traefik-public)
+      # Uses helm pull to extract CRDs from the chart itself, so version stays in sync
+      - events: ["presync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            TMP_DIR=$(mktemp -d)
+            helm pull traefik/traefik --version 38.0.2 --untar --untardir "${TMP_DIR}"
+            kubectl apply --server-side -f "${TMP_DIR}/traefik/crds/"
+            rm -rf "${TMP_DIR}"
+      # Create wildcard TLS certificate before Traefik starts (it references the secret)
+      - events: ["presync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl apply -f network/private/traefik/priv-wildcard-certificate.yaml
+            kubectl wait --for=condition=Ready certificate/priv-wildcard -n traefik-private --timeout=300s || echo "Certificate may take a moment to become ready"
+
+  # ==========================================================================
+  # PUBLIC NETWORK (Cloudflare Tunnel + Traefik)
+  # ==========================================================================
+
+  # Cloudflare Tunnel — routes public *.mlops-club.org traffic into the cluster
+  - name: cloudflare-tunnel-ingress-controller
+    namespace: traefik-public
+    createNamespace: true
+    chart: strrl.dev/cloudflare-tunnel-ingress-controller
+    version: 0.0.21
+    wait: true
+    values:
+      - network/public/cloudflare-tunnel-ingress-controller/values.yaml
+    set:
+      - name: cloudflare.apiToken
+        value: {{ requiredEnv "CLOUDFLARE_API_TOKEN" | quote }}
+      - name: cloudflare.accountId
+        value: {{ requiredEnv "CLOUDFLARE_ACCOUNT_ID" | quote }}
+      - name: cloudflare.tunnelName
+        value: "k3s-tunnel"
+
+  # Traefik Public — ingress controller for *.mlops-club.org (Cloudflare)
+  # CRDs are managed by traefik-private's presync hook (already exist by this point)
+  - name: traefik-public
+    namespace: traefik-public
+    chart: traefik/traefik
+    version: 38.0.2
+    wait: true
+    values:
+      - network/public/traefik/values.yaml
+    needs:
+      - traefik-public/cloudflare-tunnel-ingress-controller
+      - traefik-private/cert-manager
+    hooks:
+      # Create wildcard cert + catchall ingress after Traefik is running
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl apply -f network/public/traefik/mlops-wildcard-certificate.yaml
+            kubectl wait --for=condition=Ready certificate/mlops-wildcard -n traefik-public --timeout=300s || echo "Certificate may take a moment to become ready"
+            kubectl apply -f network/public/traefik/traefik-ingress.yaml
+
+  # ==========================================================================
+  # IMAGE REGISTRY
+  # ==========================================================================
+
+  # Harbor — private container registry at cr.priv.mlops-club.org
+  - name: harbor
+    namespace: image-registry
+    createNamespace: true
+    chart: harbor/harbor
+    version: 1.18.1
+    wait: true
+    values:
+      - image-registry/values.yaml
+    needs:
+      - {{ env "NFS_NAMESPACE" | default "nfs-system" }}/csi-driver-nfs
+      - traefik-private/traefik-private
+    set:
+      - name: harborAdminPassword
+        value: {{ requiredEnv "HARBOR_ADMIN_PASSWORD" | quote }}
+      - name: secretKey
+        value: {{ requiredEnv "HARBOR_SECRET_KEY" | quote }}
+    hooks:
+      # Create harbor-admin secret before install
+      - events: ["presync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl create namespace image-registry --dry-run=client -o yaml | kubectl apply -f -
+            kubectl create secret generic harbor-admin \
+              --from-literal=HARBOR_ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD}" \
+              --from-literal=HARBOR_SECRET_KEY="${HARBOR_SECRET_KEY}" \
+              --namespace image-registry \
+              --dry-run=client -o yaml | kubectl apply -f -
