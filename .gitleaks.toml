@@ -1,0 +1,27 @@
+# .gitleaks.toml
+# Purpose: Custom gitleaks rules to detect homelab-specific secrets
+# Scope: Extends gitleaks' built-in rules with patterns for Tailscale credentials
+# Related: prek.toml (gitleaks hook), .gitignore (*.env files)
+
+[extend]
+# Inherit all built-in gitleaks rules (generic API keys, AWS, GCP, etc.)
+useDefault = true
+
+[[rules]]
+id = "tailscale-client-secret"
+description = "Tailscale OAuth Client Secret"
+regex = '''tskey-client-[a-zA-Z0-9]+-[a-zA-Z0-9]+'''
+keywords = ["tskey-client"]
+
+[[rules]]
+id = "tailscale-client-id"
+description = "Tailscale OAuth Client ID"
+regex = '''[a-zA-Z0-9]{10,}CNTRL'''
+keywords = ["CNTRL"]
+
+[allowlist]
+paths = [
+  '''\.env\.example$''',
+  '''env\.example$''',
+  '''\.gitleaks\.toml$''',
+]

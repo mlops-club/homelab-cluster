@@ -1,0 +1,249 @@
+---
+# helmfile-diff.yml
+# Purpose: Validate helmfile templates and diff against the live cluster on PRs
+# Scope: Reusable workflow called by ci.yml — provides deployment preview comments
+# Overview: Two parallel jobs. static-validate renders all charts and validates
+#     with kubeconform (no cluster access). live-diff connects via Tailscale,
+#     runs helmfile diff, and posts a PR comment with per-release summary and
+#     collapsed full diff. Cluster unreachability is non-fatal.
+# Dependencies: Tailscale OAuth, readonly kubeconfig, helmfile requiredEnv secrets
+# Exports: PR comment with diff output
+# Related: helmfile.yaml.gotmpl, helmfile-deploy.yml, ci.yml
+# Implementation: GitHub-hosted runners, ephemeral Tailscale nodes, sticky PR comments
+name: "Helmfile Diff"
+on:
+  workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+      CLOUDFLARE_ZONE_ID:
+        required: true
+      TAILSCALE_CLIENT_ID:
+        required: true
+      TAILSCALE_CLIENT_SECRET:
+        required: true
+      ACME_EMAIL:
+        required: true
+      HARBOR_ADMIN_PASSWORD:
+        required: true
+      HARBOR_SECRET_KEY:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_CLIENT_SECRET:
+        required: true
+      KUBECONFIG_READONLY_B64:
+        required: true
+
+jobs:
+  static-validate:
+    name: "Static Validation"
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_DOMAIN: mlops-club.org
+      DOMAIN: mlops-club.org
+      TAILSCALE_CLIENT_ID: ${{ secrets.TAILSCALE_CLIENT_ID }}
+      TAILSCALE_CLIENT_SECRET: ${{ secrets.TAILSCALE_CLIENT_SECRET }}
+      ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+      HARBOR_ADMIN_PASSWORD: ${{ secrets.HARBOR_ADMIN_PASSWORD }}
+      HARBOR_SECRET_KEY: ${{ secrets.HARBOR_SECRET_KEY }}
+      NFS_SERVER: nas
+      NFS_SHARE: /volume1/k8s-homelab
+      NFS_STORAGE_CLASS_NAME: nas-nfs
+      NFS_NAMESPACE: nfs-system
+      NFS_MOUNT_OPTIONS: "nfsvers=3,nolock"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install tools
+        run: |
+          # helm
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          # helmfile
+          curl -fsSL -o helmfile.tar.gz \
+            "https://github.com/helmfile/helmfile/releases/download/v0.169.2/helmfile_0.169.2_linux_amd64.tar.gz"
+          tar xzf helmfile.tar.gz helmfile && sudo mv helmfile /usr/local/bin/ && rm helmfile.tar.gz
+
+          # helm-diff
+          # helm-diff doesn't publish .prov signature files, so Helm's verification always fails
+          HELM_PLUGIN_SKIP_VERIFY=true helm plugin install https://github.com/databus23/helm-diff
+
+          # kubeconform
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz"
+          tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/ && rm kubeconform.tar.gz
+
+      - name: Render templates
+        run: helmfile --file helmfile.yaml.gotmpl template > rendered.yaml
+
+      - name: Validate with kubeconform
+        run: |
+          # Strip non-resource documents (e.g. Helm NOTES.txt) that kubeconform cannot parse
+          awk 'BEGIN{doc=""; sep=0} /^---/{if(doc ~ /kind:/){printf "---\n%s", doc}; doc=""; sep=1; next} {doc=doc $0 "\n"} END{if(doc ~ /kind:/){printf "---\n%s", doc}}' rendered.yaml > resources.yaml
+          kubeconform \
+            -summary \
+            -output json \
+            -skip CustomResourceDefinition \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.30.0 \
+            resources.yaml
+
+  live-diff:
+    name: "Live Diff"
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_DOMAIN: mlops-club.org
+      DOMAIN: mlops-club.org
+      TAILSCALE_CLIENT_ID: ${{ secrets.TAILSCALE_CLIENT_ID }}
+      TAILSCALE_CLIENT_SECRET: ${{ secrets.TAILSCALE_CLIENT_SECRET }}
+      ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+      HARBOR_ADMIN_PASSWORD: ${{ secrets.HARBOR_ADMIN_PASSWORD }}
+      HARBOR_SECRET_KEY: ${{ secrets.HARBOR_SECRET_KEY }}
+      NFS_SERVER: nas
+      NFS_SHARE: /volume1/k8s-homelab
+      NFS_STORAGE_CLASS_NAME: nas-nfs
+      NFS_NAMESPACE: nfs-system
+      NFS_MOUNT_OPTIONS: "nfsvers=3,nolock"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: Install tools
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          curl -fsSL -o helmfile.tar.gz \
+            "https://github.com/helmfile/helmfile/releases/download/v0.169.2/helmfile_0.169.2_linux_amd64.tar.gz"
+          tar xzf helmfile.tar.gz helmfile && sudo mv helmfile /usr/local/bin/ && rm helmfile.tar.gz
+          # helm-diff doesn't publish .prov signature files, so Helm's verification always fails
+          HELM_PLUGIN_SKIP_VERIFY=true helm plugin install https://github.com/databus23/helm-diff
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_READONLY_B64 }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Verify cluster connectivity
+        id: connectivity
+        run: |
+          if kubectl cluster-info --request-timeout=15s 2>&1; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Cannot reach cluster API server via Tailscale"
+          fi
+
+      - name: Run helmfile diff
+        id: diff
+        if: steps.connectivity.outputs.reachable == 'true'
+        run: |
+          set +e
+          helmfile --file helmfile.yaml.gotmpl diff --context 3 > /tmp/diff-output.txt 2>&1
+          EXIT_CODE=$?
+          set -e
+
+          LINE_COUNT=$(wc -l < /tmp/diff-output.txt)
+          echo "line_count=${LINE_COUNT}" >> "$GITHUB_OUTPUT"
+
+          # Extract release summary
+          SUMMARY=$(grep -E "^Comparing release=" /tmp/diff-output.txt | sed 's/Comparing release=\([^,]*\),.*/\1/' || true)
+          CHANGED=$(grep -c "has changed\|has been added\|has been removed" /tmp/diff-output.txt || true)
+
+          if [ "$CHANGED" -eq 0 ]; then
+            echo "status=no_changes" >> "$GITHUB_OUTPUT"
+          elif [ "$EXIT_CODE" -eq 1 ]; then
+            echo "status=error" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=has_changes" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Write per-release change summary
+          grep -E "(Comparing release=|has changed|has been added|has been removed)" /tmp/diff-output.txt > /tmp/diff-summary.txt 2>/dev/null || true
+
+      - name: Post PR comment
+        if: always()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- helmfile-diff -->';
+
+            // Delete previous comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const prev = comments.find(c => c.body.includes(marker));
+            if (prev) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: prev.id,
+              });
+            }
+
+            let body = marker + '\n## Helmfile Diff\n\n';
+            const reachable = '${{ steps.connectivity.outputs.reachable }}';
+            const status = '${{ steps.diff.outputs.status }}';
+            const lineCount = '${{ steps.diff.outputs.line_count }}';
+            const logsUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            if (reachable !== 'true') {
+              body += '> **Warning**: Cluster unreachable via Tailscale. Live diff skipped.\n';
+            } else if (status === 'no_changes') {
+              body += 'No changes detected. Cluster state matches this branch.\n';
+            } else if (status === 'error') {
+              body += `> **Error**: \`helmfile diff\` failed. See [workflow logs](${logsUrl}).\n`;
+            } else if (status === 'has_changes') {
+              // Summary
+              let summary = '';
+              try { summary = fs.readFileSync('/tmp/diff-summary.txt', 'utf8'); } catch {}
+              if (summary) {
+                body += '### Changed releases\n\n```\n' + summary + '\n```\n\n';
+              }
+
+              // Full diff
+              let diff = '';
+              try { diff = fs.readFileSync('/tmp/diff-output.txt', 'utf8'); } catch {}
+              const MAX = 60000;
+              const truncated = diff.length > MAX;
+              if (truncated) diff = diff.substring(0, MAX);
+
+              body += `<details>\n<summary>Full diff (${lineCount} lines${truncated ? ', truncated' : ''})</summary>\n\n`;
+              body += '```diff\n' + diff + '\n```\n';
+              if (truncated) body += `\n> Truncated. [Full logs](${logsUrl}).\n`;
+              body += '</details>\n';
+            } else {
+              body += `Diff did not run. See [workflow logs](${logsUrl}).\n`;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

@@ -1,0 +1,97 @@
+---
+# helmfile-deploy.yml
+# Purpose: Deploy infrastructure changes to the homelab cluster on merge to main
+# Scope: Runs helmfile apply gated by GitHub Environment approval
+# Overview: Connects to the cluster via Tailscale using a deploy-capable ServiceAccount,
+#     runs helmfile apply, and verifies the deployment. Protected by a "production"
+#     GitHub Environment requiring manual reviewer approval. Concurrency control
+#     prevents parallel deploys.
+# Dependencies: Tailscale OAuth, deploy kubeconfig, helmfile requiredEnv secrets, "production" environment
+# Exports: Deployed Helm releases
+# Related: helmfile.yaml.gotmpl, helmfile-diff.yml, k8s/ci/rbac-deploy.yaml
+# Implementation: GitHub-hosted runner, ephemeral Tailscale node, environment approval gate
+name: "Deploy"
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'helmfile.yaml.gotmpl'
+      - 'network/**'
+      - 'storage/**'
+      - 'image-registry/**'
+
+concurrency:
+  group: deploy-homelab
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: "Helmfile Apply"
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_DOMAIN: mlops-club.org
+      DOMAIN: mlops-club.org
+      TAILSCALE_CLIENT_ID: ${{ secrets.TAILSCALE_CLIENT_ID }}
+      TAILSCALE_CLIENT_SECRET: ${{ secrets.TAILSCALE_CLIENT_SECRET }}
+      ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+      HARBOR_ADMIN_PASSWORD: ${{ secrets.HARBOR_ADMIN_PASSWORD }}
+      HARBOR_SECRET_KEY: ${{ secrets.HARBOR_SECRET_KEY }}
+      NFS_SERVER: nas
+      NFS_SHARE: /volume1/k8s-homelab
+      NFS_STORAGE_CLASS_NAME: nas-nfs
+      NFS_NAMESPACE: nfs-system
+      NFS_MOUNT_OPTIONS: "nfsvers=3,nolock"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: Install tools
+        run: |
+          # helm
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          # helmfile
+          curl -fsSL -o helmfile.tar.gz \
+            "https://github.com/helmfile/helmfile/releases/download/v0.169.2/helmfile_0.169.2_linux_amd64.tar.gz"
+          tar xzf helmfile.tar.gz helmfile && sudo mv helmfile /usr/local/bin/ && rm helmfile.tar.gz
+
+          # helm-diff
+          # helm-diff doesn't publish .prov signature files, so Helm's verification always fails
+          HELM_PLUGIN_SKIP_VERIFY=true helm plugin install https://github.com/databus23/helm-diff
+
+          # envsubst (used by helmfile hooks)
+          sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DEPLOY_B64 }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Verify cluster connectivity
+        run: |
+          kubectl cluster-info --request-timeout=30s
+          kubectl get nodes
+
+      - name: Deploy
+        run: helmfile --file helmfile.yaml.gotmpl apply
+
+      - name: Verify
+        if: always()
+        run: |
+          echo "=== Helm releases ==="
+          helm list -A
+          echo ""
+          echo "=== Unhealthy pods ==="
+          kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded 2>/dev/null || echo "All pods healthy"

@@ -1,5 +1,16 @@
 #!/bin/bash -euo pipefail
-# Complete idempotent cluster bootstrap and deployment script
+# bootstrap.sh
+# Purpose: Idempotent cluster bootstrap — from bare nodes to fully operational homelab
+# Scope: End-to-end setup: prerequisites, K3s deployment, kubeconfig, and infrastructure via helmfile
+# Overview: Orchestrates the full cluster lifecycle: validates prerequisites (tools, env vars, SSH),
+#     deploys K3s via Ansible, configures kubeconfig, then deploys all infrastructure Helm releases
+#     via helmfile (networking, storage, TLS, DNS, registry). Safe to re-run at any point.
+#     Application deployments (apps/*/deploy.sh) are separate and not managed by this script.
+# Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, ansible, .env with credentials
+# Exports: A fully operational K3s cluster with private/public networking, NFS storage, and Harbor registry
+# Usage: ./bootstrap.sh  |  DEPLOY_EXAMPLES=true ./bootstrap.sh
+# Related: helmfile.yaml.gotmpl, env.example, k3s-ansible/, BOOTSTRAP.md
+# Implementation: Sequential phases with early validation; helmfile handles Helm release orchestration
 
 set -euo pipefail
 
@@ -30,7 +41,22 @@ REQUIRED_VARS=(
 
 check_prerequisites() {
   echo "=== Checking Prerequisites ==="
-  
+
+  # Verify required tools
+  for cmd in kubectl helm helmfile envsubst; do
+    if ! command -v "${cmd}" &>/dev/null; then
+      echo "Error: ${cmd} is not installed"
+      exit 1
+    fi
+  done
+
+  # Verify helm-diff plugin is installed
+  if ! helm plugin list | grep -q "^diff"; then
+    echo "Error: helm-diff plugin is not installed"
+    echo "  Install with: helm plugin install https://github.com/databus23/helm-diff"
+    exit 1
+  fi
+
   # Verify .env variables
   local missing_vars=()
   for var in "${REQUIRED_VARS[@]}"; do
@@ -38,40 +64,40 @@ check_prerequisites() {
       missing_vars+=("${var}")
     fi
   done
-  
+
   # Check CLOUDFLARE_DOMAIN (can be set directly or derived from DOMAIN)
   if [[ -z "${CLOUDFLARE_DOMAIN:-}" ]]; then
     if [[ -z "${DOMAIN:-}" ]]; then
       missing_vars+=("CLOUDFLARE_DOMAIN or DOMAIN")
     fi
   fi
-  
+
   if [[ ${#missing_vars[@]} -gt 0 ]]; then
     echo "Error: The following required variables are not set in .env file:"
     printf '  - %s\n' "${missing_vars[@]}"
     exit 1
   fi
-  
+
   # Verify inventory files
   if [[ ! -f "${SCRIPT_DIR}/k3s-ansible/inventory/cluster/hosts.ini" ]]; then
     echo "Error: Inventory file not found: ${SCRIPT_DIR}/k3s-ansible/inventory/cluster/hosts.ini"
     exit 1
   fi
-  
+
   if [[ ! -f "${SCRIPT_DIR}/k3s-ansible/inventory/cluster/group_vars/all.yml" ]]; then
     echo "Error: Group vars file not found: ${SCRIPT_DIR}/k3s-ansible/inventory/cluster/group_vars/all.yml"
     exit 1
   fi
-  
+
   # Verify SSH access (basic check - try to connect to first node)
   echo "Verifying SSH access to cluster nodes..."
   local first_node
   first_node=$(grep -E "^\[master\]" -A 10 "${SCRIPT_DIR}/k3s-ansible/inventory/cluster/hosts.ini" | grep -v "^\[" | head -1 | awk '{print $1}' || echo "")
-  
+
   if [[ -n "${first_node}" ]]; then
     local ssh_user
     ssh_user=$(grep -E "^\[master\]" -A 10 "${SCRIPT_DIR}/k3s-ansible/inventory/cluster/hosts.ini" | grep "${first_node}" | grep -oE 'ansible_user=[^ ]+' | cut -d= -f2 || echo "main")
-    
+
     if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${ssh_user}@${first_node}" "echo 'SSH connection successful'" &>/dev/null; then
       echo "Warning: Could not verify SSH access to ${ssh_user}@${first_node}"
       echo "  Continuing anyway - SSH will be required during cluster bootstrap"
@@ -79,7 +105,7 @@ check_prerequisites() {
       echo "✓ SSH access verified to ${ssh_user}@${first_node}"
     fi
   fi
-  
+
   echo "✓ Prerequisites check passed"
 }
 
@@ -97,33 +123,18 @@ configure_kubeconfig() {
   echo "✓ Kubeconfig configured"
 }
 
-seed_secrets() {
-  echo "=== Seeding Kubernetes Secrets ==="
-  
-  # Create traefik-private namespace if it doesn't exist
-  kubectl create namespace traefik-private --dry-run=client -o yaml | kubectl apply -f -
-  
-  # Create Cloudflare API token secret (idempotent)
-  # This secret needs both keys for different components
-  kubectl create secret generic cloudflare-api-token \
-    --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \
-    --from-literal=cloudflare_api_token="${CLOUDFLARE_API_TOKEN}" \
-    --namespace traefik-private \
-    --dry-run=client -o yaml | kubectl apply -f -
-  
-  echo "✓ Secrets seeded"
-}
-
-install_private_network() {
-  echo "=== Installing Private Network Components ==="
-  "${SCRIPT_DIR}/network/private/helm-install.sh"
-  echo "✓ Private network components installed"
-}
-
-install_public_network() {
-  echo "=== Installing Public Network Components ==="
-  "${SCRIPT_DIR}/network/public/helm-install.sh"
-  echo "✓ Public network components installed"
+deploy_infrastructure() {
+  echo "=== Deploying Infrastructure via Helmfile ==="
+  # Export all env vars so helmfile's requiredEnv and hook shell commands can read them
+  set -a
+  source "${SCRIPT_DIR}/.env"
+  if [[ -z "${CLOUDFLARE_DOMAIN:-}" ]] && [[ -n "${DOMAIN:-}" ]]; then
+    CLOUDFLARE_DOMAIN="${DOMAIN}"
+  fi
+  set +a
+  cd "${SCRIPT_DIR}"
+  helmfile --file helmfile.yaml.gotmpl apply
+  echo "✓ Infrastructure deployed via helmfile"
 }
 
 deploy_examples() {
@@ -171,9 +182,7 @@ main() {
   check_prerequisites
   bootstrap_cluster
   configure_kubeconfig
-  seed_secrets
-  install_private_network
-  install_public_network
+  deploy_infrastructure
   
   if [[ "${DEPLOY_EXAMPLES}" == "true" ]]; then
     deploy_examples
