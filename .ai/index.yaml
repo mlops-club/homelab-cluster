@@ -33,6 +33,7 @@ howto:
     - how-to-add-audiobooks-to-audiobookshelf.md (transfer audiobooks from Libation to NAS for Audiobookshelf)
     - how-to-connect-audiobookshelf-from-ios.md (connect to Audiobookshelf from iOS using AudioBooth)
     - how-to-create-tailscale-ci-oauth.md (create Tailscale OAuth client for GitHub Actions CI)
+    - how-to-capture-screenshots-for-docs.md (capture clean screenshots from live web apps for documentation)
 
 templates:
   location: .ai/templates/

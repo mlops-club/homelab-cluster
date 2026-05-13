@@ -28,44 +28,52 @@
 
 ---
 
-## What is Immich?
+## Timeline
 
-Immich is a high-performance, self-hosted photo and video management platform. It serves as a
-drop-in replacement for Google Photos, with native mobile apps for iOS and Android.
-
-<p align="center">
-  <img src="images/immich-screenshots.png" alt="Immich multi-platform overview" width="700" />
-</p>
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Timeline** | Browse photos chronologically, just like Google Photos |
-| **Face Recognition** | Automatically detects and groups faces across your library |
-| **Smart Search** | Natural-language queries powered by CLIP (e.g. "dog at the beach") |
-| **Map View** | View photos on a world map based on GPS metadata |
-| **Auto-Upload** | iOS and Android apps automatically back up your camera roll |
-| **Albums & Sharing** | Create albums and share with other Immich users |
-| **Video Transcoding** | Plays back all video formats with on-the-fly transcoding |
-| **RAW Support** | Full support for RAW photo formats from all major cameras |
-| **OCR** | Reads and indexes text found within images |
+The main view is a chronological photo timeline with a year scrubber on the right edge.
+The sidebar provides navigation to all features. Storage usage and server version are shown
+at the bottom left.
 
 <p align="center">
-  <img src="images/feature-panel.png" alt="Immich feature overview panel" width="600" />
+  <img src="images/immich-timeline.jpg" alt="Immich photo timeline" width="700" />
 </p>
 
 ---
 
-## Live Deployment
+## Explore — Face Recognition & Places
 
-The Immich instance is running on the homelab cluster, accessible via Tailscale VPN:
+Immich automatically detects faces and clusters them by person. It also groups photos by
+location using reverse geocoding of GPS metadata.
 
 <p align="center">
-  <img src="images/immich-login-live.gif" alt="Live Immich login page at immich.priv.mlops-club.org" width="700" />
-  <br/>
-  <em>Live login page at immich.priv.mlops-club.org</em>
+  <img src="images/immich-explore.jpg" alt="Immich explore page showing detected faces and places" width="700" />
 </p>
+
+---
+
+## Map View
+
+Photos with GPS metadata are plotted on an interactive world map. Clusters expand as you
+zoom in to reveal individual photos.
+
+<p align="center">
+  <img src="images/immich-map.jpg" alt="Immich map view with geotagged photo clusters" width="700" />
+</p>
+
+---
+
+## Smart Search
+
+CLIP-powered natural-language search. Type a description like "outdoors" or "birthday cake"
+and Immich finds matching photos using semantic understanding, not just filename or tags.
+
+<p align="center">
+  <img src="images/immich-search.jpg" alt="Immich smart search results for outdoors" width="700" />
+</p>
+
+---
+
+## Access
 
 | URL | Network | Purpose |
 |-----|---------|---------|
@@ -201,24 +209,12 @@ apps/immich/
 ├── deploy.sh              # Creates NAS dirs + applies manifest
 └── docs/
     ├── README.md           # This file
-    └── images/             # Documentation images
+    └── images/             # Screenshots from the live instance
 ```
 
 ---
 
 ## Mobile App Setup
-
-<p align="center">
-  <img src="images/mobile-timeline.png" alt="Immich mobile login" width="200" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="images/mobile-search.png" alt="Immich mobile backup" width="200" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="images/mobile-map.png" alt="Immich mobile sharing" width="200" />
-</p>
-
-<p align="center">
-  <em>Left: Mobile login &nbsp;|&nbsp; Center: Auto-backup status &nbsp;|&nbsp; Right: Album sharing</em>
-</p>
 
 ### iOS
 
@@ -240,24 +236,6 @@ apps/immich/
 4. Log in with your Immich credentials
 5. Enable auto-upload in **Settings > Backup**
 6. Disable battery optimization for Immich (Settings > Apps > Immich > Battery > Unrestricted)
-
----
-
-## ML-Powered Features
-
-Immich includes machine learning features that run entirely on CPU (no GPU required):
-
-| Feature | What It Does | Performance on Intel NUC |
-|---------|-------------|------------------------|
-| **Face Recognition** | Detects faces, clusters them by person, lets you name people | ~3,000-5,000 photos/hour |
-| **Smart Search (CLIP)** | Natural-language photo search (e.g. "sunset at the beach") | Same as above |
-| **Object Detection** | Auto-tags objects found in photos | Runs as part of indexing |
-| **OCR** | Reads and indexes text within images | Runs as part of indexing |
-
-- Initial indexing of a large library takes several hours on Intel NUC CPUs
-- Ongoing indexing of new uploads is near-instant
-- ML models are cached on local SSD (~1.5GB) and persist across restarts
-- Optional: swap to OpenVINO image for Intel CPU acceleration
 
 ---
 
@@ -283,25 +261,6 @@ immich-go -server https://immich.priv.mlops-club.org \
 ```
 
 Get your API key from the Immich web UI: **User Settings > API Keys > New API Key**.
-
----
-
-## Web UI
-
-<p align="center">
-  <img src="images/screenshot-dark.webp" alt="Immich web UI showing photo timeline on desktop and mobile" width="700" />
-  <br/>
-  <em>Web UI timeline view with responsive mobile layout (dark mode)</em>
-</p>
-
-The web UI provides a full-featured photo management experience:
-- **Timeline** with year scrubber for quick navigation
-- **Sidebar** with Photos, Explore, Map, Sharing, Favorites, Albums, and more
-- **Search bar** for smart natural-language queries
-- **Upload** button for drag-and-drop imports
-- **Administration** panel for server settings, user management, and ML configuration
-- **Storage indicator** showing NAS usage
-- Fully responsive -- works on desktop, tablet, and mobile browsers
 
 ---
 
