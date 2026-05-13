@@ -124,6 +124,11 @@ at `/media` inside the container. The current library is organized as:
 /volume1/k8s-homelab/media/videos/
   fitness/
     P90X/
+      P90X - 00 - How to Bring It.avi
+      P90X - 00 - How to Bring It.nfo
+      P90X - 01 - Chest and Back.avi
+      P90X - 01 - Chest and Back.nfo
+      ...
     P90X2/
     P90X3/
     Insanity/
