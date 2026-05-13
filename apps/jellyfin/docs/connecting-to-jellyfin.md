@@ -141,12 +141,17 @@ After adding files to the NAS, trigger a library scan in Jellyfin:
 
 ---
 
-## Admin Dashboard
+## Box Sets (Video Library)
 
-The admin dashboard lets you manage libraries, users, plugins, playback settings, and more.
-Access it from the hamburger menu or navigate to **Dashboard** directly.
+Videos are organized into **box sets** — one per workout program. The Fitness library shows
+all 6 programs as cards with count badges:
 
-![Jellyfin Admin Dashboard](images/jellyfin-dashboard.png)
+![Jellyfin Box Sets](images/jellyfin-boxsets.png)
+
+Click a box set to see its videos. Use the **Version** dropdown on any video's detail page
+to switch between videos within the same box set:
+
+![Jellyfin Version Selector](images/jellyfin-version-selector.png)
 
 ## Recommended Plugins
 
