@@ -1,0 +1,30 @@
+# cluster-issuer.yaml
+# Purpose: ClusterIssuer for automated TLS certificate provisioning via Let's Encrypt
+# Scope: Cluster-wide TLS — provides the ACME issuer used by all Certificate resources
+# Overview: Configures Let's Encrypt ACME with Cloudflare DNS-01 challenge validation.
+#     Applied via envsubst to inject ACME_EMAIL and CLOUDFLARE_DOMAIN from environment.
+#     The cloudflare-api-token secret (created by helmfile's cert-manager postsync hook)
+#     provides the API token for DNS record manipulation during challenge validation.
+# Dependencies: cert-manager (CRDs and controller), cloudflare-api-token secret in traefik-private
+# Exports: ClusterIssuer "letsencrypt-cloudflare" referenced by Certificate resources
+# Related: helmfile.yaml.gotmpl (cert-manager postsync hook), network/private/traefik/priv-wildcard-certificate.yaml
+# Implementation: envsubst template — requires ACME_EMAIL and CLOUDFLARE_DOMAIN env vars at apply time
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-cloudflare
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-cloudflare
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-api-token
+            key: api-token
+      selector:
+        dnsZones:
+        - ${CLOUDFLARE_DOMAIN}

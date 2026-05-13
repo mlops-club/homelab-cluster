@@ -8,13 +8,13 @@
     procedural format. Covers prerequisites, environment setup, Ansible deployment, network
     stack installation, and verification. The bootstrap script is idempotent and safe to re-run.
 
-**Dependencies**: Intel NUC nodes with SSH access, Tailscale account, Cloudflare account, NAS for storage
+**Dependencies**: Intel NUC nodes with SSH access, Tailscale account, Cloudflare account, NAS for storage, helmfile, helm, helm-diff plugin
 
 **Exports**: A fully operational K3s cluster with private and public networking
 
-**Related**: BOOTSTRAP.md, README.md, bootstrap.sh, k3s-ansible/README.md
+**Related**: BOOTSTRAP.md, README.md, bootstrap.sh, helmfile.yaml.gotmpl, k3s-ansible/README.md
 
-**Implementation**: Scripted bootstrap with manual prerequisite verification
+**Implementation**: Scripted bootstrap with manual prerequisite verification; helmfile manages all Helm releases
 
 **Difficulty**: advanced
 
@@ -61,12 +61,10 @@ tailscale status
 ```
 
 The script is idempotent and performs these operations in order:
-1. Validates prerequisites (`.env`, inventory, SSH)
+1. Validates prerequisites (`.env`, inventory, SSH, helmfile, helm-diff)
 2. Bootstraps K3s cluster via Ansible
 3. Configures kubeconfig for local kubectl access
-4. Seeds required Kubernetes secrets
-5. Installs private network (cert-manager, reflector, tailscale, external-dns, certificate, traefik-private)
-6. Installs public network (Cloudflare Tunnel, traefik-public)
+4. Deploys all infrastructure via `helmfile apply` (cert-manager, reflector, tailscale-operator, external-dns, traefik-private, cloudflare-tunnel, traefik-public, csi-driver-nfs, harbor)
 
 To also deploy example apps:
 ```bash
@@ -79,18 +77,14 @@ DEPLOY_EXAMPLES=true ./bootstrap.sh
 # Nodes are ready
 kubectl get nodes -o wide
 
+# All Helm releases are deployed
+helm list -A
+
 # System pods are running
 kubectl get pods -A
 
-# Private network components
-kubectl get pods -n cert-manager
-kubectl get pods -n tailscale
-kubectl get pods -n external-dns
-kubectl get pods -n traefik-private
-
-# Public network components
-kubectl get pods -n cloudflare-tunnel
-kubectl get pods -n traefik-public
+# Verify helmfile sees no drift
+source .env && helmfile -f helmfile.yaml.gotmpl diff
 ```
 
 ### Step 4: Verify Networking

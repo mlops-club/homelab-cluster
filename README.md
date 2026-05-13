@@ -1,4 +1,94 @@
-# MLOps Club Kubernetes Cluster 🐳
+# MLOps Club Kubernetes Cluster
+
+## Infrastructure Dependency Graph
+
+All Helm releases are managed by [`helmfile.yaml.gotmpl`](./helmfile.yaml.gotmpl). The graph below shows release dependencies, presync inputs, and postsync outputs.
+
+<!-- HELMFILE-GRAPH-START -->
+<!-- Update this diagram when adding/removing releases or modifying hooks in helmfile.yaml.gotmpl -->
+
+```mermaid
+graph TD
+    %% ── Color legend ──────────────────────────────────────────────
+    %% Blue  = Helm release (the deployable unit helmfile manages)
+    %% Green = Resource created by a hook (not tracked by Helm)
+    %% Shapes: rounded rect = release, hexagon = hook-created resource
+
+    %% ── STORAGE ───────────────────────────────────────────────────
+    subgraph storage [Storage]
+        NFS[csi-driver-nfs<br/><sub>nfs-system · v4.12.1</sub>]:::release
+        SC{{StorageClass: nas-nfs}}:::hook
+        NFS -- postsync --> SC
+    end
+
+    %% ── PRIVATE NETWORK ──────────────────────────────────────────
+    subgraph private [Private Network · traefik-private]
+        CM_CRD{{cert-manager CRDs<br/><sub>6 CRDs · v1.19.2</sub>}}:::hook
+        CM[cert-manager<br/><sub>v1.19.2</sub>]:::release
+        CF_SEC{{Secret: cloudflare-api-token}}:::hook
+        CI{{ClusterIssuer:<br/>letsencrypt-cloudflare}}:::hook
+
+        CM_CRD -- presync --> CM
+        CM -- postsync --> CF_SEC
+        CM -- postsync --> CI
+
+        REF[reflector<br/><sub>v9.1.45</sub>]:::release
+        TS[tailscale-operator<br/><sub>v1.92.5</sub>]:::release
+        EDNS[external-dns<br/><sub>v1.20.0</sub>]:::release
+
+        TK_CRD{{Traefik CRDs<br/><sub>33 CRDs · v38.0.2</sub>}}:::hook
+        CERT_PRIV{{Certificate:<br/>*.priv.mlops-club.org}}:::hook
+        TP[traefik-private<br/><sub>v38.0.2</sub>]:::release
+
+        TK_CRD -- presync --> TP
+        CERT_PRIV -- presync --> TP
+    end
+
+    %% ── PUBLIC NETWORK ───────────────────────────────────────────
+    subgraph public [Public Network · traefik-public]
+        CFT[cloudflare-tunnel<br/><sub>v0.0.21</sub>]:::release
+        TPUB[traefik-public<br/><sub>v38.0.2</sub>]:::release
+        CERT_PUB{{Certificate:<br/>*.mlops-club.org}}:::hook
+        ING{{Ingress:<br/>traefik-public-catchall}}:::hook
+
+        TPUB -- postsync --> CERT_PUB
+        TPUB -- postsync --> ING
+    end
+
+    %% ── IMAGE REGISTRY ───────────────────────────────────────────
+    subgraph registry [Image Registry · image-registry]
+        HAR_SEC{{Secret: harbor-admin}}:::hook
+        HAR[harbor<br/><sub>v1.18.1</sub>]:::release
+        HAR_SEC -- presync --> HAR
+    end
+
+    %% ── INTER-RELEASE DEPENDENCIES (needs) ───────────────────────
+    CM --> TP
+    REF --> TP
+    TS --> TP
+    EDNS --> TP
+
+    CF_SEC -.-> EDNS
+
+    CFT --> TPUB
+    CM --> TPUB
+
+    NFS --> HAR
+    TP --> HAR
+
+    %% ── STYLES ───────────────────────────────────────────────────
+    classDef release fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
+    classDef hook fill:#d1fae5,stroke:#059669,color:#064e3b
+
+    style storage fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style private fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style public fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style registry fill:#f8fafc,stroke:#cbd5e1,color:#334155
+```
+
+**Legend**: Blue = Helm release managed by helmfile · Green = resource created by a presync/postsync hook · Solid arrow = `needs` dependency or hook relationship · Dotted arrow = implicit dependency (secret used by another release)
+
+<!-- HELMFILE-GRAPH-END -->
 
 ## Quick Start (set up cluster from scratch)
 
