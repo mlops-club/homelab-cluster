@@ -58,7 +58,7 @@ ssh eric@nas "echo OK"
 ```
 
 If this fails, check that:
-- Tailscale is connected (`tailscale status`)
+- Tailscale is connected for SSH access to the NAS (`tailscale status`)
 - The NAS node key has not expired (see Tailscale admin console)
 - Your SSH key is authorized on the NAS (use `ssh-copy-id eric@nas` if needed)
 
@@ -89,7 +89,7 @@ ssh eric@nas "ls /volume1/k8s-homelab/media/audiobooks/Books/ | head -20"
 
 ### Step 4: Scan Library in Audiobookshelf
 
-Open the Audiobookshelf web UI at `https://abs.priv.mlops-club.org` (requires Tailscale). Navigate to the library and click the scan button (circular arrow icon) to discover new files. Audiobookshelf also performs periodic automatic scans.
+Open the Audiobookshelf web UI at `https://books.mlops-club.org`. Navigate to the library and click the scan button (circular arrow icon) to discover new files. Audiobookshelf also performs periodic automatic scans.
 
 ![Audiobookshelf library with 28 books after scan](../../apps/audiobookshelf/docs/images/audiobookshelf-library-walkthrough.gif)
 
