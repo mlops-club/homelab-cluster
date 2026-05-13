@@ -1,0 +1,51 @@
+# Temporary resources to create the videos directory on the NAS.
+# Applied by deploy.sh, then cleaned up after the job completes.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-root-tmp
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: nfs-root-tmp
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-root-tmp
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: nfs-root-tmp
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mkdir-videos
+spec:
+  ttlSecondsAfterFinished: 30
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: mk
+        image: busybox
+        command: ["sh", "-c", "mkdir -p /mnt/media/videos"]
+        volumeMounts:
+        - name: nfs
+          mountPath: /mnt
+      volumes:
+      - name: nfs
+        persistentVolumeClaim:
+          claimName: nfs-root-tmp
