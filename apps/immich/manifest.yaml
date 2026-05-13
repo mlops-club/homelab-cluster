@@ -1,0 +1,399 @@
+# Immich — self-hosted Google Photos
+# Private access via Tailscale at immich.priv.mlops-club.org and photos.priv.mlops-club.org
+#
+# Components: immich-server, immich-machine-learning, PostgreSQL (VectorChord), Valkey (Redis)
+# Storage: NFS on NAS for media library, local-path SSD for PostgreSQL and ML cache
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+
+# ==========================================================================
+# STORAGE — NFS (media library on NAS)
+# ==========================================================================
+
+---
+# Static PV — photo/video library on NAS at a human-readable path
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-library
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: immich-library
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab/media/photos"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: library
+  namespace: immich
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: immich-library
+  resources:
+    requests:
+      storage: 500Gi
+
+# ==========================================================================
+# STORAGE — local-path (PostgreSQL data + ML model cache)
+# ==========================================================================
+
+---
+# PostgreSQL data — MUST be on local SSD, NOT NFS (NFS lacks POSIX file locking)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: immich
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+# ML model cache — downloaded CLIP/face models persist across restarts
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-cache
+  namespace: immich
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+
+# ==========================================================================
+# POSTGRESQL (with VectorChord for smart search vectors)
+# ==========================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-postgres
+  namespace: immich
+  labels:
+    app: immich-postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: immich-postgres
+  template:
+    metadata:
+      labels:
+        app: immich-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: immich
+        - name: POSTGRES_PASSWORD
+          value: immich
+        - name: POSTGRES_DB
+          value: immich
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 250m
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-postgres
+  namespace: immich
+  labels:
+    app: immich-postgres
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+  selector:
+    app: immich-postgres
+
+# ==========================================================================
+# VALKEY (Redis-compatible job queue)
+# ==========================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-valkey
+  namespace: immich
+  labels:
+    app: immich-valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: immich-valkey
+  template:
+    metadata:
+      labels:
+        app: immich-valkey
+    spec:
+      containers:
+      - name: valkey
+        image: valkey/valkey:8-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 50m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-valkey
+  namespace: immich
+  labels:
+    app: immich-valkey
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: immich-valkey
+
+# ==========================================================================
+# IMMICH SERVER (API + web UI + job processing)
+# ==========================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-server
+  namespace: immich
+  labels:
+    app: immich-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: immich-server
+  template:
+    metadata:
+      labels:
+        app: immich-server
+    spec:
+      containers:
+      - name: server
+        image: ghcr.io/immich-app/immich-server:release
+        ports:
+        - containerPort: 2283
+          name: http
+        env:
+        - name: DB_HOSTNAME
+          value: immich-postgres
+        - name: DB_USERNAME
+          value: immich
+        - name: DB_PASSWORD
+          value: immich
+        - name: DB_DATABASE_NAME
+          value: immich
+        - name: REDIS_HOSTNAME
+          value: immich-valkey
+        - name: IMMICH_MACHINE_LEARNING_URL
+          value: http://immich-machine-learning:3003
+        - name: TZ
+          value: America/Denver
+        volumeMounts:
+        - name: library
+          mountPath: /usr/src/app/upload
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 500m
+      volumes:
+      - name: library
+        persistentVolumeClaim:
+          claimName: library
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server
+  namespace: immich
+  labels:
+    app: immich-server
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 2283
+    targetPort: 2283
+  selector:
+    app: immich-server
+
+# ==========================================================================
+# IMMICH MACHINE LEARNING (face recognition, CLIP, object detection)
+# ==========================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-machine-learning
+  namespace: immich
+  labels:
+    app: immich-machine-learning
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: immich-machine-learning
+  template:
+    metadata:
+      labels:
+        app: immich-machine-learning
+    spec:
+      containers:
+      - name: machine-learning
+        image: ghcr.io/immich-app/immich-machine-learning:release
+        ports:
+        - containerPort: 3003
+          name: http
+        env:
+        - name: TZ
+          value: America/Denver
+        volumeMounts:
+        - name: ml-cache
+          mountPath: /cache
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+      volumes:
+      - name: ml-cache
+        persistentVolumeClaim:
+          claimName: ml-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-machine-learning
+  namespace: immich
+  labels:
+    app: immich-machine-learning
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3003
+    targetPort: 3003
+  selector:
+    app: immich-machine-learning
+
+# ==========================================================================
+# INGRESS — private access via Tailscale (dual hostnames)
+# ==========================================================================
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: immich
+  namespace: immich
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: immich.priv.mlops-club.org
+    external-dns.alpha.kubernetes.io/target: traefik.priv.mlops-club.org
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+  - hosts:
+    - immich.priv.mlops-club.org
+    - photos.priv.mlops-club.org
+    secretName: priv-wildcard-tls
+  rules:
+  - host: immich.priv.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: immich-server
+            port:
+              number: 2283
+  - host: photos.priv.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: immich-server
+            port:
+              number: 2283
+---
+# Second Ingress for external-dns to create the photos.priv DNS record
+# (external-dns reads the annotation, not the host rules)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: immich-photos-alias
+  namespace: immich
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: photos.priv.mlops-club.org
+    external-dns.alpha.kubernetes.io/target: traefik.priv.mlops-club.org
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+  - hosts:
+    - photos.priv.mlops-club.org
+    secretName: priv-wildcard-tls
+  rules:
+  - host: photos.priv.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: immich-server
+            port:
+              number: 2283
