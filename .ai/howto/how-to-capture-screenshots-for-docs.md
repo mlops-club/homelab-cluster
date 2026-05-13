@@ -1,130 +1,187 @@
 # How-To: Capture Screenshots for Documentation
 
-**Purpose**: Guide AI agents through capturing clean, professional screenshots for documentation
+**Purpose**: Guide AI agents through capturing clean, accurate screenshots from live web applications for use in documentation
 
-**Scope**: Any documentation that needs screenshots of web UIs (Jellyfin, Audiobookshelf, Grafana, etc.)
+**Scope**: Screenshot capture using macOS `screencapture` and `sips` with the Claude-in-Chrome MCP extension
 
-**Overview**: Covers how to take clean browser screenshots without UI artifacts like extension banners,
-    debug toolbars, or tab chrome. Includes best practices for file naming, sizing, and placement.
+**Overview**: Describes the correct workflow for taking documentation screenshots from live web
+    applications running in Chrome. Covers avoiding common pitfalls like extension overlays,
+    wrong file formats, and using stock images instead of real ones.
 
-**Dependencies**: Chrome browser with Claude extension, `mcp__claude-in-chrome__*` tools
+**Dependencies**: macOS `screencapture`, `sips`, Chrome browser with Claude-in-Chrome MCP extension
 
-**Exports**: Clean PNG screenshots saved to the appropriate `docs/images/` directory
+**Exports**: Clean JPEG screenshots suitable for committing to the repository
 
-**Related**: apps/jellyfin/docs/connecting-to-jellyfin.md
+**Related**: prek.toml (500KB max file size), how-to-deploy-a-new-app.md
 
-**Difficulty**: beginner
+**Difficulty**: easy
 
 ---
+
+## Rules
+
+1. **Use real screenshots from the live instance, not stock images.** Never download promotional
+   images from a project's GitHub repository and present them as documentation of our deployment.
+   They show outdated UIs, fake data, and someone else's setup.
+
+2. **Never use GIF format for static screenshots.** The gif_creator tool always produces GIF files
+   regardless of the filename extension. Do not use it for screenshots. GIF is only appropriate
+   for recording multi-step interactions.
+
+3. **Always exclude browser chrome and extension artifacts.** The "Claude is active in this tab
+   group" banner and other extension UI elements must not appear in screenshots. Crop the capture
+   region to exclude them.
+
+4. **Do not show other tabs.** Screenshots should show only the application content, not browser
+   tabs, bookmarks bars, or other open pages.
 
 ## Before Taking Screenshots
 
 ### Dismiss the "Claude is active in this tab group" banner
 
-The Claude browser extension shows a notification banner at the bottom of the page:
-**"Claude is active in this tab group"**. This banner will appear in screenshots if not dismissed.
+The Claude browser extension injects a notification banner into the DOM. If you use
+`html2canvas` or any DOM-based capture method, this banner will appear in the output.
 
-**Always dismiss it before capturing:**
+**Dismiss it via JavaScript before capturing:**
 
 ```javascript
 // Run via mcp__claude-in-chrome__javascript_tool
-document.querySelector('[class*="claude-banner"]')?.remove();
-// Or click the X button on the banner manually
+document.querySelectorAll('div, span, section, aside').forEach(el => {
+  if (el.textContent?.includes('Claude is active') && el.children.length < 10) el.remove();
+});
+document.querySelectorAll('[class*="claude"], [class*="Claude"]').forEach(el => el.remove());
 ```
 
-If the banner reappears after navigation, dismiss it again before each screenshot.
+The banner reappears after navigation, so dismiss it again before each capture.
 
-### Hide Chrome debugging banners
+## Method: macOS `screencapture` + `sips`
 
-When Claude controls the browser, Chrome may show an infobar:
-**'"Claude" started debugging this browser'**. This also appears in screenshots taken via
-`screencapture` or other OS-level tools.
+This is the reliable method for producing clean JPEG screenshots from Chrome.
 
-To avoid this:
-- **Preferred**: Use `mcp__claude-in-chrome__computer` with `action: "screenshot"` — this captures
-  only the viewport content, not Chrome UI chrome (tabs, URL bar, infobars).
-- **Avoid**: macOS `screencapture` captures the full window including Chrome tabs, URL bar, and
-  debug banners.
+### Step 1: Determine the browser content area
 
-### General checklist before capturing
-
-- [ ] "Claude is active in this tab group" banner is dismissed
-- [ ] No Chrome debug infobars visible
-- [ ] Page is fully loaded (no spinners, skeleton screens)
-- [ ] The relevant content is visible in the viewport (scroll if needed)
-- [ ] Dark mode / light mode matches the rest of the documentation
-- [ ] No sensitive data visible (API keys, tokens, passwords)
-
----
-
-## Taking Screenshots
-
-### Method 1: Browser automation tool (recommended)
-
-Use `mcp__claude-in-chrome__computer` with `action: "screenshot"`. This captures only the
-browser viewport — no tabs, URL bar, or OS window chrome.
-
-```
-mcp__claude-in-chrome__computer:
-  action: screenshot
-  tabId: <tab_id>
+```javascript
+// Run in the Chrome tab via javascript_tool
+JSON.stringify({
+  screenX: window.screenX,
+  screenY: window.screenY,
+  outerWidth: window.outerWidth,
+  outerHeight: window.outerHeight
+})
 ```
 
-The screenshot is returned as an image in the tool result. Save it to disk using the JavaScript
-tool with a canvas download, or use it directly.
+The content area starts below the browser chrome (tabs + address bar), which is approximately
+80px on macOS Chrome. So the content area top is roughly `screenY + 82`.
 
-### Method 2: JavaScript html2canvas (fallback)
+### Step 2: Navigate and wait
 
-If the browser tool screenshot has issues, use html2canvas to render the page to a canvas
-and trigger a download:
+Use the Chrome MCP tools to navigate to the target page. Wait 3-4 seconds for the page to
+fully render (images, maps, ML-generated content).
+
+```
+navigate → wait 3s → verify with screenshot tool
+```
+
+### Step 3: Capture with screencapture
+
+Use macOS `screencapture -x` (silent) with `-R x,y,w,h` to capture only the content area.
+Crop 100pt off the bottom to exclude the "Claude is active" tab group banner.
+
+```bash
+# Example for a Chrome window at y=120, full width 1728px
+# Content starts at y=202 (120 + 82px browser chrome)
+# Height = 815px (leaving 100px bottom margin to exclude extension banner)
+screencapture -x -R 0,202,1728,815 raw.png
+```
+
+### Step 4: Resize and convert to JPEG
+
+Raw Retina captures are 2x resolution and very large. Resize to ~1400px wide and convert
+to JPEG at 75% quality to stay under the 500KB prek limit.
+
+```bash
+sips -Z 1400 raw.png --out screenshot.jpg -s format jpeg -s formatOptions 75
+```
+
+### Step 5: Verify
+
+Read the resulting file to confirm:
+- No "Claude is active" banner visible
+- No browser tabs or address bar visible
+- Page content is fully loaded (no spinners, no blank areas)
+- File size is under 500KB
+
+```bash
+ls -lh screenshot.jpg   # Verify size
+```
+
+### Step 6: Clean up
+
+Remove the raw capture file.
+
+```bash
+rm raw.png
+```
+
+## Fallback: html2canvas (DOM-based capture)
+
+If `screencapture` coordinates are hard to determine, you can use html2canvas as a fallback.
+**You must dismiss the Claude banner first** (see above) since html2canvas captures the full DOM.
 
 ```javascript
 // Run via mcp__claude-in-chrome__javascript_tool
 const script = document.createElement('script');
 script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+script.onload = () => {
+  html2canvas(document.body).then(canvas => {
+    const link = document.createElement('a');
+    link.download = 'screenshot.png';
+    link.href = canvas.toDataURL();
+    link.click();
+  });
+};
 document.head.appendChild(script);
-
-// Wait for load, then:
-html2canvas(document.body).then(canvas => {
-  const link = document.createElement('a');
-  link.download = 'screenshot.png';
-  link.href = canvas.toDataURL();
-  link.click();
-});
 ```
 
-**Note**: Chrome may block auto-downloads after the first one. If this happens, the download
-will silently fail. Check `~/Downloads/` to confirm the file was saved.
+**Note**: Chrome may block auto-downloads after the first one. Check `~/Downloads/` to confirm.
+Convert the resulting PNG to JPEG with `sips` to stay under the 500KB limit.
 
-### Method 3: macOS screencapture (last resort)
+## Common Mistakes
 
-```bash
-screencapture -l$(osascript -e 'tell app "Google Chrome" to id of window 1') screenshot.png
+| Mistake | Why It's Wrong | What to Do Instead |
+|---------|---------------|-------------------|
+| Using gif_creator for static screenshots | Always produces GIF format regardless of filename | Use `screencapture` + `sips` |
+| Downloading images from a project's GitHub | Shows outdated UI, fake data, wrong version | Capture from the live instance |
+| Not waiting for page load | Captures spinners or partially-loaded content | Wait 3-4 seconds after navigation |
+| Including the "Claude is active" banner | Exposes tooling artifacts in documentation | Crop bottom 100px or dismiss via JS |
+| Leaving files as PNG | PNGs of photo-heavy pages are 1-5MB (over 500KB limit) | Convert to JPEG at 75% quality |
+| Not verifying the screenshot | May contain artifacts you didn't notice | Always `Read` the file to inspect it |
+| Using html2canvas without dismissing banner | Banner is in the DOM and gets rendered | Run JS to remove banner elements first |
+
+## File Naming Convention
+
+Use descriptive kebab-case names prefixed with the app name:
+
+```
+<app>-<feature>.jpg
+
+Examples:
+  immich-timeline.jpg
+  immich-explore.jpg
+  immich-map.jpg
+  jellyfin-library.jpg
+  audiobookshelf-player.jpg
 ```
 
-**Warning**: This captures the full Chrome window including tabs, URL bar, and any debug
-banners. Only use this if the browser automation tools are unavailable. You may need to crop
-the result afterward.
+## Checklist
 
----
+Before committing screenshots:
 
-## File Naming and Placement
-
-- Save screenshots to `apps/<app-name>/docs/images/`
-- Use lowercase kebab-case: `jellyfin-home.png`, `jellyfin-dashboard.png`
-- Name files descriptively by what they show, not by sequence number
-- Use PNG format for UI screenshots (not JPEG — text gets blurry with JPEG compression)
-
----
-
-## Common Pitfalls
-
-| Pitfall | Prevention |
-|---------|-----------|
-| "Claude is active in this tab group" banner in screenshot | Dismiss the banner before every capture |
-| Chrome debug infobar visible | Use viewport-only screenshot method, not OS screencapture |
-| Chrome tabs/URL bar visible | Use `mcp__claude-in-chrome__computer` screenshot, not macOS screencapture |
-| Page not fully loaded | Wait for network idle or use `mcp__claude-in-chrome__computer` wait action |
-| html2canvas download blocked | Chrome blocks repeated auto-downloads; check ~/Downloads/ or use a different method |
-| Screenshot shows wrong window | Activate Chrome window with AppleScript before OS screencapture |
-| Stale screenshot from previous session | Always verify screenshots with Read tool after capturing |
+- [ ] All images are from the live instance (not stock/promotional)
+- [ ] All images are JPEG format (not GIF, not oversized PNG)
+- [ ] All images are under 500KB
+- [ ] No browser chrome visible (tabs, address bar, bookmarks)
+- [ ] No extension artifacts visible ("Claude is active", debugging banners)
+- [ ] No other tabs or windows visible
+- [ ] Pages are fully loaded (no spinners or blank areas)
+- [ ] File names are descriptive and follow the naming convention
