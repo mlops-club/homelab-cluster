@@ -44,6 +44,10 @@ Tailscale provides secure access from anywhere — home, work, or mobile.
 
 4. Sign in with your Jellyfin credentials
 
+5. After signing in, you'll land on the **Home** page showing your media libraries:
+
+   ![Jellyfin Home Page](images/jellyfin-home.png)
+
 > **First-time setup:** If no accounts exist, Jellyfin shows a setup wizard.
 > Create an admin account and add the `/media` library (type: **Movies** or **Mixed**).
 
@@ -113,29 +117,31 @@ to your phone and play them without a network connection.
 
 ## Adding Videos to the Library
 
-Videos are stored on the NAS at `/volume1/k8s-homelab/media/videos/`. Organize them
-in folders for clean library browsing:
+Videos are stored on the NAS at `/volume1/k8s-homelab/media/videos/` and mounted
+at `/media` inside the container. The current library is organized as:
 
 ```
 /volume1/k8s-homelab/media/videos/
-  P90X/
-    01 - Chest & Back.mkv
-    02 - Plyometrics.mkv
-    ...
-  Insanity/
-    01 - Dig Deeper.mkv
-    02 - Plyometric Cardio Circuit.mkv
-    ...
-  Stretching/
-    Morning Stretch.mkv
-    Yoga for Recovery.mkv
-    ...
+  fitness/
+    P90X/
+    P90X2/
+    P90X3/
+    Insanity/
+    Insanity Max 30/
+    Fitness FAQs - Back Bridge/
 ```
 
 After adding files to the NAS, trigger a library scan in Jellyfin:
 **Dashboard** > **Libraries** > **Scan All Libraries**
 
 ---
+
+## Admin Dashboard
+
+The admin dashboard lets you manage libraries, users, plugins, playback settings, and more.
+Access it from the hamburger menu or navigate to **Dashboard** directly.
+
+![Jellyfin Admin Dashboard](images/jellyfin-dashboard.png)
 
 ## Recommended Plugins
 
@@ -166,6 +172,6 @@ Jellyfin uses software transcoding by default. If playback is slow:
 
 ### Library not showing videos
 
-1. Verify files exist on the NAS: `ls /volume1/k8s-homelab/media/videos/`
+1. Verify files exist on the NAS: `ls /volume1/k8s-homelab/media/videos/fitness/`
 2. In Jellyfin: **Dashboard** > **Libraries** > **Scan All Libraries**
 3. Check that the library is pointed at `/media` (the mount path inside the container)
