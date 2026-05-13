@@ -156,18 +156,11 @@ metadata:
   name: audiobookshelf
   namespace: audiobookshelf
   annotations:
-    external-dns.alpha.kubernetes.io/hostname: abs.priv.mlops-club.org
-    external-dns.alpha.kubernetes.io/target: traefik.priv.mlops-club.org
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
-  ingressClassName: traefik-private
-  tls:
-  - secretName: priv-wildcard-tls
-    hosts:
-    - abs.priv.mlops-club.org
+  ingressClassName: traefik-public
   rules:
-  - host: abs.priv.mlops-club.org
+  - host: books.mlops-club.org
     http:
       paths:
       - path: /
