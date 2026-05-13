@@ -15,7 +15,7 @@ repo = "builtin"
 hooks = [
   { id = "trailing-whitespace", priority = 0 },
   { id = "end-of-file-fixer", priority = 0 },
-  { id = "check-yaml", priority = 0 },
+  { id = "check-yaml", args = ["--allow-multiple-documents"], priority = 0 },
   { id = "check-json", priority = 0 },
   { id = "check-toml", priority = 0 },
   { id = "check-merge-conflict", priority = 0 },
@@ -38,7 +38,8 @@ hooks = [
 repo = "https://github.com/pre-commit/pre-commit-hooks"
 rev = "v5.0.0"
 hooks = [
-{ id = "check-added-large-files", args = ["--maxkb=500"], priority = 0 },
+  { id = "check-added-large-files", args = ["--maxkb=500"], priority = 0, exclude = "^.*/docs/images/.*$" },
+  { id = "check-added-large-files", args = ["--maxkb=3072"], priority = 0, files = "^.*/docs/images/.*$" },
 ]
 
 

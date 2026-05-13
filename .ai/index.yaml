@@ -30,6 +30,8 @@ howto:
     - how-to-deploy-a-new-app.md (deploy a new application to the cluster)
     - how-to-troubleshoot-kubernetes.md (debug K3s deployment failures)
     - how-to-bootstrap-the-cluster.md (bootstrap the cluster from scratch)
+    - how-to-add-audiobooks-to-audiobookshelf.md (transfer audiobooks from Libation to NAS for Audiobookshelf)
+    - how-to-connect-audiobookshelf-from-ios.md (connect to Audiobookshelf from iOS using AudioBooth)
     - how-to-create-tailscale-ci-oauth.md (create Tailscale OAuth client for GitHub Actions CI)
 
 templates:

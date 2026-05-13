@@ -1,0 +1,172 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: audiobookshelf
+---
+# Static PV — audiobooks library on NAS at a human-readable path
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: audiobookshelf-audiobooks
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: audiobookshelf-audiobooks
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab/media/audiobooks"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: audiobooks
+  namespace: audiobookshelf
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: audiobookshelf-audiobooks
+  resources:
+    requests:
+      storage: 500Gi
+---
+# Static PV — podcasts
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: audiobookshelf-podcasts
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: audiobookshelf-podcasts
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab/media/podcasts"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: podcasts
+  namespace: audiobookshelf
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: audiobookshelf-podcasts
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Config + metadata — node-local via local-path (k3s default)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: config
+  namespace: audiobookshelf
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metadata
+  namespace: audiobookshelf
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audiobookshelf
+  namespace: audiobookshelf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audiobookshelf
+  template:
+    metadata:
+      labels:
+        app: audiobookshelf
+    spec:
+      containers:
+      - name: audiobookshelf
+        image: ghcr.io/advplyr/audiobookshelf:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: TZ
+          value: America/Denver
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: metadata
+          mountPath: /metadata
+        - name: audiobooks
+          mountPath: /audiobooks
+        - name: podcasts
+          mountPath: /podcasts
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: config
+      - name: metadata
+        persistentVolumeClaim:
+          claimName: metadata
+      - name: audiobooks
+        persistentVolumeClaim:
+          claimName: audiobooks
+      - name: podcasts
+        persistentVolumeClaim:
+          claimName: podcasts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audiobookshelf
+  namespace: audiobookshelf
+spec:
+  selector:
+    app: audiobookshelf
+  ports:
+  - port: 80
+    targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: audiobookshelf
+  namespace: audiobookshelf
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik-public
+  rules:
+  - host: books.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: audiobookshelf
+            port:
+              number: 80
