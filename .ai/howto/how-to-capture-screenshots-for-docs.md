@@ -35,6 +35,25 @@
 4. **Do not show other tabs.** Screenshots should show only the application content, not browser
    tabs, bookmarks bars, or other open pages.
 
+## Before Taking Screenshots
+
+### Dismiss the "Claude is active in this tab group" banner
+
+The Claude browser extension injects a notification banner into the DOM. If you use
+`html2canvas` or any DOM-based capture method, this banner will appear in the output.
+
+**Dismiss it via JavaScript before capturing:**
+
+```javascript
+// Run via mcp__claude-in-chrome__javascript_tool
+document.querySelectorAll('div, span, section, aside').forEach(el => {
+  if (el.textContent?.includes('Claude is active') && el.children.length < 10) el.remove();
+});
+document.querySelectorAll('[class*="claude"], [class*="Claude"]').forEach(el => el.remove());
+```
+
+The banner reappears after navigation, so dismiss it again before each capture.
+
 ## Method: macOS `screencapture` + `sips`
 
 This is the reliable method for producing clean JPEG screenshots from Chrome.
@@ -104,6 +123,29 @@ Remove the raw capture file.
 rm raw.png
 ```
 
+## Fallback: html2canvas (DOM-based capture)
+
+If `screencapture` coordinates are hard to determine, you can use html2canvas as a fallback.
+**You must dismiss the Claude banner first** (see above) since html2canvas captures the full DOM.
+
+```javascript
+// Run via mcp__claude-in-chrome__javascript_tool
+const script = document.createElement('script');
+script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+script.onload = () => {
+  html2canvas(document.body).then(canvas => {
+    const link = document.createElement('a');
+    link.download = 'screenshot.png';
+    link.href = canvas.toDataURL();
+    link.click();
+  });
+};
+document.head.appendChild(script);
+```
+
+**Note**: Chrome may block auto-downloads after the first one. Check `~/Downloads/` to confirm.
+Convert the resulting PNG to JPEG with `sips` to stay under the 500KB limit.
+
 ## Common Mistakes
 
 | Mistake | Why It's Wrong | What to Do Instead |
@@ -111,9 +153,10 @@ rm raw.png
 | Using gif_creator for static screenshots | Always produces GIF format regardless of filename | Use `screencapture` + `sips` |
 | Downloading images from a project's GitHub | Shows outdated UI, fake data, wrong version | Capture from the live instance |
 | Not waiting for page load | Captures spinners or partially-loaded content | Wait 3-4 seconds after navigation |
-| Including the "Claude is active" banner | Exposes tooling artifacts in documentation | Crop bottom 100px from capture region |
+| Including the "Claude is active" banner | Exposes tooling artifacts in documentation | Crop bottom 100px or dismiss via JS |
 | Leaving files as PNG | PNGs of photo-heavy pages are 1-5MB (over 500KB limit) | Convert to JPEG at 75% quality |
 | Not verifying the screenshot | May contain artifacts you didn't notice | Always `Read` the file to inspect it |
+| Using html2canvas without dismissing banner | Banner is in the DOM and gets rendered | Run JS to remove banner elements first |
 
 ## File Naming Convention
 
