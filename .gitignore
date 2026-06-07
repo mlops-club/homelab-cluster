@@ -19,3 +19,6 @@
 
 # IDE
 .cursor/debug.log
+
+# Ansible collection installs (created by ansible-galaxy)
+**/.ansible/
