@@ -1,0 +1,21 @@
+# Purpose: Configure the NVIDIA Kubernetes Device Plugin DaemonSet for the homelab cluster
+# Scope: Single GPU node (cluster-node-4) exposing nvidia.com/gpu schedulable resources
+# Overview: Pins the device plugin DaemonSet to the GPU-bearing node so it does not attempt
+#     to schedule on the three Intel NUC control-plane nodes (which have no NVIDIA GPU).
+#     Exposes the RTX 5080 as a single schedulable nvidia.com/gpu resource. The chart's
+#     defaults are sensible for a single-GPU, single-tenant workload — no time-slicing or
+#     MIG partitioning is configured.
+# Dependencies: nvidia-container-toolkit installed on cluster-node-4; K3s containerd
+#     configured with the nvidia runtime as default (managed via k3s-ansible)
+# Related: helmfile.yaml.gotmpl, k3s-ansible/
+
+# Pin DaemonSet to the GPU-bearing node. Other nodes have no NVIDIA hardware.
+nodeSelector:
+  kubernetes.io/hostname: cluster-node-4
+
+# The chart's default affinity requires Node Feature Discovery / GPU Feature Discovery
+# labels (feature.node.kubernetes.io/pci-10de.present, nvidia.com/gpu.present, etc.)
+# that this cluster does not provide. Helm deep-merges values, so an empty {} would not
+# clear the defaults — `null` is required to drop the field entirely. Scheduling is then
+# constrained solely by the hostname nodeSelector above.
+affinity: null

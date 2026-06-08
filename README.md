@@ -62,6 +62,11 @@ graph TD
         HAR_SEC -- presync --> HAR
     end
 
+    %% ── GPU ──────────────────────────────────────────────────────
+    subgraph gpu [GPU · nvidia-device-plugin]
+        NVDP[nvidia-device-plugin<br/><sub>v0.19.2 · cluster-node-4 only</sub>]:::release
+    end
+
     %% ── INTER-RELEASE DEPENDENCIES (needs) ───────────────────────
     CM --> TP
     REF --> TP
@@ -84,6 +89,7 @@ graph TD
     style private fill:#f8fafc,stroke:#cbd5e1,color:#334155
     style public fill:#f8fafc,stroke:#cbd5e1,color:#334155
     style registry fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style gpu fill:#f8fafc,stroke:#cbd5e1,color:#334155
 ```
 
 **Legend**: Blue = Helm release managed by helmfile · Green = resource created by a presync/postsync hook · Solid arrow = `needs` dependency or hook relationship · Dotted arrow = implicit dependency (secret used by another release)
@@ -159,7 +165,7 @@ Error from server (BadRequest): Unable to list "/v1, Resource=nodes": the server
 
 Cause: When `./run reset` is run, new x509 certs are generated on the cluster nodes, which means the certs in `~/.kube/config` are out of date.
 
-Fix: run 
+Fix: run
 
 ```bash
 ssh -t main@cluster-node-1 "sudo cat /etc/rancher/k3s/k3s.yaml" > k3s-ansible/kubeconfig
@@ -189,7 +195,7 @@ We use `*.mlops-club.org` (single-level wildcard) to leverage Cloudflare's free 
 **Architecture:**
 - **Cloudflare Tunnel Ingress**: Configured with `*.mlops-club.org` host rule, routes all matching subdomains → Traefik (port 80, HTTP)
 - **Traefik**: Routes based on host header (e.g., `whoami.mlops-club.org` → whoami service) using `web` entrypoint (HTTP)
-- **TLS**: 
+- **TLS**:
   - Edge: Cloudflare handles TLS termination (free Universal SSL for `*.mlops-club.org`)
   - Origin: No TLS needed - Cloudflare Tunnel connects to Traefik via HTTP (port 80)
 
