@@ -6,7 +6,8 @@
 
 **Overview**: Immich is a self-hosted Google Photos replacement providing a web UI and native
     mobile apps with face recognition, smart search, video transcoding, and auto-upload.
-    Accessible privately via Tailscale at immich.priv.mlops-club.org and photos.priv.mlops-club.org.
+    Accessible privately via Tailscale at immich.priv.mlops-club.org and photos.priv.mlops-club.org,
+    or locally via NodePort at http://\<node-ip\>:30283.
 
 ---
 
@@ -75,10 +76,24 @@ and Immich finds matching photos using semantic understanding, not just filename
 
 ## Access
 
-| URL | Network | Purpose |
-|-----|---------|---------|
-| `https://immich.priv.mlops-club.org` | Tailscale VPN | Primary access |
-| `https://photos.priv.mlops-club.org` | Tailscale VPN | Friendly alias |
+| Method | URL / Address | When to Use |
+|--------|--------------|-------------|
+| **Tailscale (remote)** | `https://immich.priv.mlops-club.org` | From anywhere on the tailnet |
+| **Tailscale (alias)** | `https://photos.priv.mlops-club.org` | Friendly alias via Tailscale |
+| **NodePort (local LAN)** | `http://<node-ip>:30283` | From devices on the home network |
+
+### NodePort Access (Local Network)
+
+For devices on the same LAN as the cluster (192.168.50.x subnet), connect directly
+via NodePort without Tailscale:
+
+| Node | Address |
+|------|---------|
+| cluster-node-1 | `http://192.168.50.96:30283` |
+| cluster-node-2 | `http://192.168.50.226:30283` |
+| cluster-node-3 | `http://192.168.50.94:30283` |
+
+> **Note:** NodePort access is HTTP only (no TLS). Use Tailscale for encrypted connections.
 
 On first visit, create an admin account through the web UI.
 
@@ -116,8 +131,9 @@ Immich runs as 4 microservices in the `immich` Kubernetes namespace:
 | **immich-postgres** | `ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0` | PostgreSQL with VectorChord extension for vector similarity search |
 | **immich-valkey** | `valkey/valkey:8-alpine` | Redis-compatible BullMQ job queue |
 
-### Networking Path
+### Networking Paths
 
+**Via Tailscale (remote / encrypted):**
 ```
 Mobile App / Browser
         │
@@ -135,6 +151,17 @@ Traefik Private (traefik-private namespace)
         │
         ▼
 immich-server (immich namespace)
+```
+
+**Via NodePort (local LAN):**
+```
+Mobile App / Browser (192.168.50.x subnet)
+        │
+        ▼
+  http://<node-ip>:30283
+        │
+        ▼
+immich-server (immich namespace, NodePort 30283 → 2283)
 ```
 
 ---
@@ -219,8 +246,9 @@ apps/immich/
 ### iOS
 
 1. Install **Immich** from the App Store
-2. Connect to **Tailscale VPN** on your device
-3. Open Immich and enter server URL: `https://immich.priv.mlops-club.org`
+2. Open Immich and enter server URL:
+   - Via Tailscale: `https://immich.priv.mlops-club.org`
+   - Via LAN: `http://192.168.50.96:30283`
 4. Log in with your Immich credentials
 5. Enable auto-upload:
    - Go to **Settings > Backup**
@@ -231,8 +259,9 @@ apps/immich/
 ### Android
 
 1. Install **Immich** from Google Play or F-Droid
-2. Connect to **Tailscale VPN**
-3. Open Immich and enter server URL: `https://immich.priv.mlops-club.org`
+2. Open Immich and enter server URL:
+   - Via Tailscale: `https://immich.priv.mlops-club.org`
+   - Via LAN: `http://192.168.50.96:30283`
 4. Log in with your Immich credentials
 5. Enable auto-upload in **Settings > Backup**
 6. Disable battery optimization for Immich (Settings > Apps > Immich > Battery > Unrestricted)
