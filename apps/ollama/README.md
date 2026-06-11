@@ -16,24 +16,44 @@ Both directories are exposed as static `hostPath` PVs (`ollama-models`, `hugging
 
 **Don't put PVCs of this from other namespaces.** A `hostPath` PV with `accessModes: ReadWriteOnce` only binds to one PVC. If you want another namespace to use the HF cache, you'll create a PVC for `huggingface-cache` in that namespace.
 
-## Model choice
+## Models
 
-Pre-pulled on first start: **qwen3:8b** (Q4_K_M, ~4.5 GB).
+Two variants of qwen3:8b are installed on first start:
 
-VRAM budget on a single RTX 5080 (16 GB):
+| Model tag | Default `num_ctx` | When to use |
+|---|---|---|
+| `qwen3:8b` | **40960** (from upstream Modelfile) | Short prompts, fastest TTFT, minimal KV cache footprint |
+| `qwen3:8b-128k` | **131072** | Long-context work (RAG, big repos, transcripts) |
 
-| Component | Cost |
-|---|---|
-| qwen3:8b Q4_K_M weights | ~4.5 GB |
-| 128K-token KV cache, Q8_0 quantization | ~9.4 GB |
-| Activations / scratch | ~2 GB |
-| **Total** | **~16 GB** (just fits) |
+### Why two variants?
 
-Why not qwen3:14b? At 128K context with Q8 KV the math comes out to ~18.6 GB → OOM. To run 14b you'd need to either drop `OLLAMA_CONTEXT_LENGTH` to ~32K or switch `OLLAMA_KV_CACHE_TYPE` to `q4_0`. Either works; both are easy `values.yaml` edits. I picked qwen3:8b because "biggest comfortable fit at full 128K" was the prompt.
+Ollama's `OLLAMA_CONTEXT_LENGTH` env var only sets the *ceiling* — it does not raise a model's load-time default above what the model's own Modelfile declares. The upstream `qwen3:8b` Modelfile hard-codes `PARAMETER num_ctx 40960`, so just pulling it gives you 40K context regardless of what the env var says. To actually load with 128K by default, the model has to declare it.
 
-To add more models, either:
+`qwen3:8b-128k` is a derived model built via the chart's `models.create` hook:
+
+```
+FROM qwen3:8b
+PARAMETER num_ctx 131072
+```
+
+Same weights on disk (it's a thin Modelfile layer, no extra download), different load-time KV cache allocation.
+
+### VRAM budget on the RTX 5080 (16 GB)
+
+| | qwen3:8b @ 40K ctx | qwen3:8b-128k @ 128K ctx |
+|---|---|---|
+| Q4_K_M weights | ~4.5 GB | ~4.5 GB |
+| KV cache (Q8_0) | ~3 GB | ~9.4 GB |
+| Activations / scratch | ~1 GB | ~2 GB |
+| **Total** | **~8.5 GB** | **~16 GB** (tight) |
+
+Why not qwen3:14b at 128K? Weights alone are ~8.4 GB; with Q8 KV at 128K you're at ~18.6 GB and the load fails. To run 14b you'd need to either drop num_ctx to ~32K or switch `OLLAMA_KV_CACHE_TYPE` to `q4_0`.
+
+### Adding more models
+
 1. Pull through the Open WebUI model picker (downloads to the same PV).
 2. Or `ollama pull <model>` inside the pod: `kubectl -n ollama exec deploy/ollama -- ollama pull llama3.1:8b`.
+3. For a derived model with a custom context length, add to `values.yaml` under `ollama.models.create` and `helm upgrade`.
 
 ## Runtime configuration
 

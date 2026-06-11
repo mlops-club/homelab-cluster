@@ -32,15 +32,26 @@ ollama:
     nvidiaResource: nvidia.com/gpu
 
   models:
-    # Pre-pulled on first start. qwen3:8b at Q4_K_M is ~4.5 GB; with Q8 KV
-    # cache quantization (env below) and flash attention, a full 128K-token
-    # context fits in ~14 GB — leaving ~2 GB headroom for activations.
+    # qwen3:8b's upstream Modelfile hard-codes num_ctx=40960. So just pulling
+    # it gives you a 40K context by default — even with OLLAMA_CONTEXT_LENGTH
+    # set higher in env, the env var is only the *ceiling*, not the load-time
+    # default. The model has to declare a larger num_ctx for it to actually load
+    # with one.
     #
-    # If you want a bigger model later, pull through the Open WebUI model
-    # picker. qwen3:14b also works but you'd need to drop num_ctx to ~32K
-    # or accept Q4 KV cache to fit (see README.md).
+    # We therefore both:
+    #   1) Pull qwen3:8b (the stock 40K-context variant), and
+    #   2) Create a derived variant qwen3:8b-128k that defaults to the full
+    #      131072-token context. With Q8 KV cache + flash attention, that lands
+    #      at ~14 GB total on the 16 GB RTX 5080.
+    # Open WebUI shows both in its model picker; pick the 128k variant when
+    # you want long-context behavior, stock for low-latency short prompts.
     pull:
       - qwen3:8b
+    create:
+      - name: qwen3:8b-128k
+        template: |
+          FROM qwen3:8b
+          PARAMETER num_ctx 131072
 
 # Ollama runtime knobs — passed as env vars to the container.
 # Refs: https://github.com/ollama/ollama/blob/main/envconfig/config.go
