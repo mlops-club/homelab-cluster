@@ -1,0 +1,78 @@
+# Namespace, model-storage PVs, and an inference-only NetworkPolicy for Ollama.
+# The Ollama Deployment itself is created by the otwld/ollama Helm chart — see deploy.sh.
+#
+# Storage layout on cluster-node-4 (the GPU node):
+#   /srv/models/                  ← shared root for any model weights this homelab serves
+#     ├── ollama/                 ← Ollama blob store (this app)
+#     └── huggingface/            ← HuggingFace cache (future vLLM / TGI / direct CLI use)
+#
+# Both directories are exposed as hostPath PVs pinned to cluster-node-4 via nodeAffinity.
+# DirectoryOrCreate means kubelet creates the dirs on first mount; no manual SSH setup needed.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ollama
+
+---
+# Ollama model store — node-local NVMe on cluster-node-4.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ollama-models
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  volumeMode: Filesystem
+  hostPath:
+    path: /srv/models/ollama
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [cluster-node-4]
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: ollama
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: ollama-models
+  resources:
+    requests:
+      storage: 200Gi
+
+---
+# HuggingFace cache — reserved for future GPU workloads (vLLM, TGI, raw `huggingface-cli download`).
+# Not consumed by Ollama. Pre-created so the predictable path /srv/models/huggingface exists from day one.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: huggingface-cache
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  volumeMode: Filesystem
+  hostPath:
+    path: /srv/models/huggingface
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [cluster-node-4]

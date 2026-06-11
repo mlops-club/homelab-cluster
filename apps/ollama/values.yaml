@@ -1,0 +1,100 @@
+# Helm values for otwld/ollama on the homelab GPU node.
+#
+# Workload assumptions:
+#   - Single GPU node (cluster-node-4, RTX 5080, 16 GB VRAM)
+#   - Ollama gets the GPU exclusively
+#   - Models live on the host NVMe at /srv/models/ollama (bound via the
+#     ollama-models PVC from manifest.yaml)
+#   - Service is cluster-internal only — Open WebUI and any future workload
+#     reach it at http://ollama.ollama.svc.cluster.local:11434
+
+replicaCount: 1
+
+image:
+  repository: ollama/ollama
+  pullPolicy: IfNotPresent
+  # tag is the chart's appVersion (v0.30.6 for chart 1.60.0) — leave default
+
+# Bind to the GPU node and request the GPU via the NVIDIA RuntimeClass that
+# the gpu-operator registered. nvidia.com/gpu: 1 makes Kubernetes refuse to
+# schedule other GPU-claiming pods until Ollama scales down.
+runtimeClassName: nvidia
+
+nodeSelector:
+  kubernetes.io/hostname: cluster-node-4
+
+ollama:
+  port: 11434
+  gpu:
+    enabled: true
+    type: nvidia
+    number: 1
+    nvidiaResource: nvidia.com/gpu
+
+  models:
+    # Pre-pulled on first start. qwen3:8b at Q4_K_M is ~4.5 GB; with Q8 KV
+    # cache quantization (env below) and flash attention, a full 128K-token
+    # context fits in ~14 GB — leaving ~2 GB headroom for activations.
+    #
+    # If you want a bigger model later, pull through the Open WebUI model
+    # picker. qwen3:14b also works but you'd need to drop num_ctx to ~32K
+    # or accept Q4 KV cache to fit (see README.md).
+    pull:
+      - qwen3:8b
+
+# Ollama runtime knobs — passed as env vars to the container.
+# Refs: https://github.com/ollama/ollama/blob/main/envconfig/config.go
+extraEnv:
+  # Required by Ollama to honor OLLAMA_KV_CACHE_TYPE.
+  - name: OLLAMA_FLASH_ATTENTION
+    value: "1"
+  # Quantize KV cache to 8-bit. Halves the per-token KV memory cost vs FP16
+  # with minimal quality loss. Required to fit 128K context for qwen3:8b on 16 GB.
+  - name: OLLAMA_KV_CACHE_TYPE
+    value: q8_0
+  # Default context window for any model loaded by this server. Per-request
+  # num_ctx can still override downward; raising past this would re-allocate.
+  - name: OLLAMA_CONTEXT_LENGTH
+    value: "131072"
+  # Keep the model resident in VRAM between requests so the first token of
+  # each new conversation is fast. The default 5m unloads aggressively.
+  - name: OLLAMA_KEEP_ALIVE
+    value: 24h
+  # 16 GB VRAM with a 128K KV cache can serve one request at a time without
+  # OOMing under load. Concurrency-2 risks OOM on long prompts.
+  - name: OLLAMA_NUM_PARALLEL
+    value: "1"
+  - name: OLLAMA_MAX_LOADED_MODELS
+    value: "1"
+
+# Persist the Ollama blob store to the hostPath PV in manifest.yaml.
+# Models survive pod restarts; ollama pulls them once and reuses them.
+persistentVolume:
+  enabled: true
+  existingClaim: ollama-models
+
+service:
+  type: ClusterIP
+  port: 11434
+
+# Pulling a multi-GB model on first start takes a few minutes. The chart's
+# default livenessProbe (60s initial delay, 6 × 10s failure threshold) gives
+# only 2 min before the pod gets killed — too tight. Loosen it.
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  failureThreshold: 20
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 30
+
+# Recreate (default) is correct — we have one GPU, can't run two replicas overlapping.
+updateStrategy:
+  type: Recreate
+
+# Long termination grace so an in-flight generation can finish on rolling restart.
+terminationGracePeriodSeconds: 120

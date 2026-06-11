@@ -1,0 +1,61 @@
+# Helm values for open-webui/open-webui.
+#
+# Architecture:
+#   - Open WebUI runs in the open-webui namespace, no GPU access.
+#   - It talks to Ollama at http://ollama.ollama.svc.cluster.local:11434
+#     (Ollama is in the ollama namespace, owns the GPU).
+#   - Ingress is created manually in manifest.yaml so we can use the
+#     priv-wildcard-tls cert + traefik-private ingress class consistently
+#     with other private apps in this repo (jellyfin, etc).
+
+# Don't run the Helm chart's bundled Ollama subchart — we deploy Ollama
+# separately to keep the GPU service reusable by other workloads.
+ollama:
+  enabled: false
+
+# Point Open WebUI at our external Ollama. Cluster DNS resolves this
+# service name; no NetworkPolicy blocks cross-namespace by default.
+ollamaUrls:
+  - http://ollama.ollama.svc.cluster.local:11434
+
+# Disable the chart's optional sidecars we don't need.
+pipelines:
+  enabled: false
+tika:
+  enabled: false
+terminals:
+  enabled: false
+
+# Single-replica deployment: no Redis needed for websocket session sharing.
+websocket:
+  enabled: false
+
+# We handle ingress in manifest.yaml.
+ingress:
+  enabled: false
+
+# Persist user accounts + chat history on cluster-local storage (k3s default
+# local-path provisioner). Small footprint — SQLite + uploaded files.
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: local-path
+  accessModes: [ReadWriteOnce]
+
+# Open WebUI's defaults are fine, but lock down the first-signup-becomes-admin
+# behavior so a stranger who hits the Tailscale URL before you do can't claim
+# the admin account.
+extraEnvVars:
+  # Disable open signup. You'll create the admin via the first-run flow, then
+  # we leave this off so no one else can register.
+  # Toggle to "true" temporarily if you ever need to invite someone.
+  - name: ENABLE_SIGNUP
+    value: "true"
+  # Always require login.
+  - name: WEBUI_AUTH
+    value: "true"
+  # Sensible defaults for an internal-only deploy.
+  - name: DEFAULT_USER_ROLE
+    value: pending      # new signups land in "pending" until admin approves
+  - name: ENABLE_COMMUNITY_SHARING
+    value: "false"
