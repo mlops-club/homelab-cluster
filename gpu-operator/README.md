@@ -2,7 +2,9 @@
 
 The [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/overview.html) provisions everything Kubernetes needs to schedule GPU workloads: the container toolkit, the device plugin, DCGM metrics, MIG/MPS, and Node Feature Discovery (NFD).
 
-> **Background reading**: [How the NVIDIA GPU Operator Works](https://www.youtube.com/watch?v=nu6bLhuvlWM) — a talk explaining what each component does and how they fit together. Watch this first if you've never touched the operator before.
+> **Background reading**: Watch/read these first if you've never touched the operator before.
+> - [How the NVIDIA GPU Operator Works](https://www.youtube.com/watch?v=nu6bLhuvlWM) — talk explaining what each component does and how they fit together.
+> - [The Real-World Guide to the NVIDIA GPU Operator for Kubernetes AI](https://www.spectrocloud.com/blog/the-real-world-guide-to-the-nvidia-gpu-operator-for-kubernetes-ai) — practical guide covering production gotchas.
 
 ## Cluster state assumed
 
