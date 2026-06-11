@@ -1,14 +1,14 @@
 # helmfile.yaml.gotmpl
 # Purpose: Declarative specification of all Helm releases in the homelab cluster
 # Scope: All infrastructure Helm charts — storage, networking, TLS, DNS, ingress, and container registry
-# Overview: Manages 9 Helm releases with dependency ordering, CRD lifecycle hooks,
+# Overview: Manages 10 Helm releases with dependency ordering, CRD lifecycle hooks,
 #     and secret injection from environment variables. Uses Go templating (.gotmpl extension
 #     required by helmfile v1) with requiredEnv for secrets and env/default for optional config.
 #     Presync hooks handle CRDs and secrets; postsync hooks handle Certificates, ClusterIssuers,
 #     StorageClasses, and Ingress resources that exist outside Helm's release tracking.
 #     Chart versions are pinned to prevent accidental upgrades.
 # Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, .env with credentials
-# Exports: 9 Helm releases across 4 namespaces (traefik-private, traefik-public, nfs-system, image-registry)
+# Exports: 10 Helm releases across 5 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator)
 # Environment: Production homelab cluster (k3s on 3 Intel NUCs)
 # Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml
 # Implementation: helmfile v1 with Go templating, presync/postsync hooks for non-Helm resources
@@ -42,6 +42,8 @@ repositories:
     url: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
   - name: harbor
     url: https://helm.goharbor.io
+  - name: nvidia
+    url: https://helm.ngc.nvidia.com/nvidia
 
 ---
 
@@ -68,6 +70,38 @@ releases:
         args:
           - "-c"
           - "envsubst < storage/nfs/storage-class.yaml | kubectl apply -f -"
+
+  # ==========================================================================
+  # GPU
+  # ==========================================================================
+
+  # NVIDIA GPU Operator — manages NVIDIA container toolkit, device plugin, NFD,
+  # DCGM exporter, and MIG/MPS on GPU-bearing nodes. The host NVIDIA driver is
+  # pre-installed (driver 595.71.05, CUDA 13.2) so driver.enabled=false in values.
+  # K3s containerd paths are passed to the toolkit so it patches the right config.
+  - name: gpu-operator
+    namespace: gpu-operator
+    createNamespace: true
+    chart: nvidia/gpu-operator
+    version: v26.3.2
+    wait: true
+    timeout: 600
+    values:
+      - gpu-operator/values.yaml
+    hooks:
+      # Pre-install the ClusterPolicy CRD so helm-diff (used by `helmfile apply`)
+      # can render the chart's ClusterPolicy CR. The chart ships CRDs in crds/,
+      # which `helm install` applies but `helm diff` does not.
+      - events: ["presync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            TMP_DIR=$(mktemp -d)
+            helm pull nvidia/gpu-operator --version v26.3.2 --untar --untardir "${TMP_DIR}"
+            kubectl apply --server-side -f "${TMP_DIR}/gpu-operator/crds/"
+            rm -rf "${TMP_DIR}"
 
   # ==========================================================================
   # PRIVATE NETWORK (Tailscale + cert-manager + Traefik)

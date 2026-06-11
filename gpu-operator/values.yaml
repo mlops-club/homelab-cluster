@@ -1,0 +1,34 @@
+# Values for nvidia/gpu-operator on this K3s homelab cluster.
+#
+# Why these settings:
+#   - The host NVIDIA driver is pre-installed on cluster-node-4 (RTX 5080,
+#     driver 595.71.05, CUDA 13.2). The operator must NOT try to install or
+#     manage the driver — set driver.enabled=false.
+#   - K3s ships its own containerd at non-standard paths. The toolkit container
+#     needs the K3s-specific CONTAINERD_CONFIG / CONTAINERD_SOCKET env vars or
+#     it will silently patch the wrong file and pods will not get GPU access.
+#   - Node Feature Discovery (bundled with the chart) labels GPU-bearing nodes,
+#     so the operator's DaemonSets self-target cluster-node-4 only. No manual
+#     node labeling or nodeSelector is required.
+
+# Host has the driver installed — operator only handles user-space components.
+driver:
+  enabled: false
+
+# Patch K3s's rendered containerd config (NOT the .tmpl). K3s re-renders
+# config.toml from its built-in default template on every k3s-node restart,
+# blowing away any edits — that is by design. The toolkit DaemonSet is a
+# controller: it re-applies the nvidia runtime entries each time it starts,
+# so the patch self-heals after k3s restarts. Pointing at the .tmpl instead
+# strips out K3s's CRI plugin block and bricks the node (lesson learned).
+toolkit:
+  enabled: true
+  env:
+    - name: CONTAINERD_CONFIG
+      value: /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+    - name: CONTAINERD_SOCKET
+      value: /run/k3s/containerd/containerd.sock
+    - name: CONTAINERD_RUNTIME_CLASS
+      value: nvidia
+    - name: CONTAINERD_SET_AS_DEFAULT
+      value: "false"
