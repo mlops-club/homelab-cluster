@@ -1,0 +1,37 @@
+# Namespace + private ingress for Open WebUI.
+# The Open WebUI Deployment, Service, and PVC are created by the open-webui
+# Helm chart — see deploy.sh and values.yaml.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: open-webui
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: open-webui
+  namespace: open-webui
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+    - hosts:
+        - chat.priv.mlops-club.org
+      secretName: priv-wildcard-tls
+  rules:
+    - host: chat.priv.mlops-club.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Service name follows the Open WebUI chart convention:
+                # <release-name>. We install the release as "open-webui".
+                name: open-webui
+                port:
+                  number: 80
