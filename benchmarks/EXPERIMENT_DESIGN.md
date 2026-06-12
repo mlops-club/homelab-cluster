@@ -234,7 +234,113 @@ Steady-state for this homelab:
 4. **Sweep prompt length finely** (256, 512, 1024, 2048, 4096, 8192) to confirm or refute the "TTFT has a floor, not a slope" observation.
 5. **Concurrent profile** — even though Ollama serializes, measuring queue latency at concurrency=4 would tell you what a user actually sees when 4 conversations are in flight.
 
-## 6. How to reproduce / extend
+## 6. The v1 gap and the v2 prefix-cache probe
+
+A reviewer pointed out two dimensions v1 didn't measure: **concurrency** (TTFT/TPOT as concurrent users scale up) and **prefix cache effects** (TTFT with varying overlap between requests). Investigation findings:
+
+### Concurrency on this Ollama deploy is not benchmarkable as configured
+
+Ollama's `OLLAMA_NUM_PARALLEL=N` pre-allocates N independent KV cache buffers when the model loads. Any value > 1 is **mutually exclusive** with our 128K-default context: 4 slots × 9.4 GB KV cache per slot >> 16 GB VRAM. To run a meaningful concurrency sweep you'd have to switch the production deploy to (`NUM_PARALLEL=4`, `ctx=32K`) — losing the 128K context capability. That's a product decision, not a benchmarking detail.
+
+The result we *can* get without changing prod: solo TTFT/TPOT under load, which v1 already covers. We chose not to flip the production knob just to satisfy a benchmark axis, so concurrency is left for a follow-up if we later switch to a multi-user config.
+
+### Prefix caching on Ollama: works, but invisible to GuideLLM
+
+Three findings worth recording:
+
+**1. Ollama does prefix caching, but the wrong field will lie to you.** Sending identical 1187-token prompts back-to-back to `/api/generate`:
+
+| Request | `prompt_eval_count` | `prompt_eval_duration` |
+|---|---|---|
+| 1 (cold) | 1187 | 149 ms |
+| 2 (warm) | **1187** | **8 ms** |
+| 3 (warm) | 1187 | 8 ms |
+
+`prompt_eval_count` is the total prompt length — it doesn't change on a cache hit. The actual cache signal is `prompt_eval_duration`, which drops ~18× when the prefix matches. Initial investigation got this wrong; revised methodology in §6.2 below.
+
+**2. The cache benefit is invisible from a streaming client's perspective.** v1's GuideLLM run found a ~4-5 s TTFT floor on *every* scenario regardless of prompt length. That floor is dominated by Ollama's streaming chunk-batching (`iter_tokens_per_iteration ≈ 2.45` — chunks flush every ~2.5 tokens). So even a 18× prefill speedup gets buried before it reaches the client.
+
+This is **not** a GuideLLM bug — TTFT is the right metric for measuring user experience. But it's the wrong metric for measuring *prefill cost*. Different questions, different tools.
+
+**3. The right tool is a custom probe directly against `/api/generate`.** That's `benchmarks/prefix-cache/probe.py` — generates prompts with controlled prefix overlap, hits Ollama directly, captures `prompt_eval_duration` per request. The experimental matrix:
+
+```
+Axis 1: prompt length   {1024, 4096, 16384}        (3 levels)
+Axis 2: prefix hit rate {0%, 25%, 50%, 75%, 100%}  (5 levels)
+
+= 15 scenarios × 8 requests each
+```
+
+For each scenario, all 8 requests share the first `hit_rate%` of their prompt tokens; the rest is a deterministic unique tail. Each prompt opens with `/no_think` to suppress qwen3's reasoning block (irrelevant when we're measuring prefill).
+
+### What we expect each scenario to show
+
+- **hit=100%, requests 2+**: identical prompt, full cache hit → `prompt_eval_duration ≈ 0` after the cold first request.
+- **hit=0%, requests 2+**: each prompt has a unique prefix tail → cache miss → `prompt_eval_duration ≈ cold-request value`.
+- **hit=50%, requests 2+**: cache hits on the shared first half, misses on the rest → `prompt_eval_duration ≈ half of cold`.
+
+The shape we expect: cold-request duration scales with prompt length (more tokens to prefill), warm-request duration scales with `(1 - hit_rate%) × prompt_length`. A heatmap of cold/warm speedup across (prompt_length × hit_rate) should be nearly diagonal — long prompts × high hit rates give the biggest absolute savings.
+
+### Results
+
+The probe completed in ~3 minutes against qwen3:8b. The most informative single figure is the per-request prefill trajectory — every cache state for every prompt size on one page:
+
+![Prefill cost over request order](reports/figures/prefix-cache/03-prefill-over-requests.png)
+
+Each line is one (prompt_length, hit_rate) scenario, with request 1 on the left (always cold) and requests 2-8 to its right (warmed by the shared prefix from request 1). Notable:
+
+- **All scenarios start at the same cold prefill cost** for a given prompt size — request 1 is always uncached.
+- **Caching saturates instantly after request 1**: by request 2 the line has dropped to its steady-state warm value, and stays flat. No gradual warm-up curve.
+- **hit=100% (red) collapses to ~10 ms** across all prompt sizes — a 230× speedup at 16K tokens.
+- **hit=0% (pink top) stays at the cold value** — no overlap means no cache benefit even after 7 prior requests in the scenario.
+- **Intermediate hit rates land at proportional steady-state values** — at hit=50%, the warm prefill is approximately half the cold prefill (clean linear behavior).
+
+Median `prompt_eval_duration` over requests 2+ (warm phase) for each scenario:
+
+| Prompt tokens | hit=0% | hit=25% | hit=50% | hit=75% | hit=100% |
+|---:|---:|---:|---:|---:|---:|
+| 1,024 | 144 ms | 104 ms | 75 ms | 42 ms | **7 ms** |
+| 4,096 | 558 ms | 432 ms | 301 ms | 160 ms | **8 ms** |
+| 16,384 | 2,632 ms | 2,110 ms | 1,500 ms | 806 ms | **11 ms** |
+
+The pattern is crisp and matches expectation:
+
+- **hit=100% collapses to ~10 ms regardless of prompt length.** A complete cache hit means Ollama only re-evaluates the very last positions (probably bookkeeping) and skips the bulk of the attention compute. 11 ms for 16,384 tokens is essentially "no prefill happened."
+- **hit=0% scales roughly linearly with prompt length** (558 ms / 4 K ≈ 0.14 ms per token; 2,632 ms / 16 K ≈ 0.16 ms per token). The slight super-linearity at the long end is the O(N²) attention term emerging — at 16 K tokens it starts to matter; at 1 K it's negligible.
+- **Intermediate hit rates interpolate linearly between 0% and 100%.** At hit=50%, 16 K prompts cost 1,500 ms — almost exactly half of 2,632 ms. Same shape at every prompt length. This is what you'd expect if cache hits skip exactly the cached tokens with zero re-validation cost.
+
+### Cold/warm speedup factor
+
+![Prefill speedup heatmap](reports/figures/prefix-cache/02-speedup-heatmap.png)
+
+Dividing first-request (cold) prefill by warm-median (the same data as the heatmap, in table form):
+
+| Prompt | hit=0% | hit=25% | hit=50% | hit=75% | hit=100% |
+|---|---|---|---|---|---|
+| 1,024 | 1.0× | 1.4× | 1.9× | 3.4× | 20.1× |
+| 4,096 | 1.0× | 1.3× | 1.9× | 3.5× | 70.1× |
+| 16,384 | 1.0× | 1.2× | 1.8× | 3.3× | **230.5×** |
+
+Two takeaways:
+
+1. **The bigger the prompt, the bigger the absolute win from caching** — 240× speedup on 16 K tokens vs 20× on 1 K. In absolute ms, a 16 K-token prompt with 100% cache hit saves you ~2.6 seconds of GPU time per request.
+2. **Even modest cache hits help a lot at low prompt sizes**: at 1 K tokens, a 75% hit rate gives 3.5× speedup. Cheap to achieve in practice (any reasonable system prompt + repeated context will share a lot).
+
+### Why the user-facing v1 TTFT showed no benefit
+
+Recall v1's GuideLLM run had a ~4-5 s TTFT floor. With this probe:
+
+- Cold 4 K-token prompt prefill: **558 ms**
+- Warm hit=100% 4 K-token prefill: **8 ms**
+- Difference: **550 ms** of GPU work saved
+
+But v1's TTFT was 4,800 ms median. So at most 550 ms / 4,800 ms ≈ **11% of total TTFT** is the kind of work prefix caching speeds up. The other 89% is Ollama's chunk-batching, network roundtrip, and streaming startup — none of which the cache touches. **The cache works as designed, but a streaming-aware client's TTFT mostly doesn't notice.**
+
+The corollary: prefix caching matters most when you're driving Ollama from a non-streaming workload (RAG retriever, classification batch jobs, function-call pipelines). For pure interactive chat with streaming, the user mostly feels the streaming floor, not the prefill cost.
+
+_Figures in `benchmarks/reports/figures/prefix-cache/`._
+
+## 7. How to reproduce / extend
 
 ```bash
 # 1) Edit benchmarks/guidellm/suite.sh to add/remove scenarios

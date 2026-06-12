@@ -1,0 +1,58 @@
+# Prefix-cache probe Job. Runs probe.py against the in-cluster Ollama,
+# captures Ollama's native prompt_eval_duration metric (which GuideLLM
+# can't see), writes results to /work/results.json, sleeps for retrieval.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prefix-cache-probe
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: probe
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PIP_DISABLE_PIP_VERSION_CHECK
+              value: "1"
+            - name: PIP_ROOT_USER_ACTION
+              value: ignore
+            - name: HF_HOME
+              value: /work/hf-cache
+            # Force Python stdout/stderr to be unbuffered so kubectl logs shows progress
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          workingDir: /work
+          command: ["/bin/bash", "-eux", "-o", "pipefail", "-c"]
+          args:
+            - |
+              pip install --quiet httpx transformers tokenizers
+              python3 /scripts/probe.py \
+                --target http://ollama.ollama.svc.cluster.local:11434 \
+                --model qwen3:8b \
+                --tokenizer Qwen/Qwen3-8B \
+                --prompt-lengths 1024,4096,16384 \
+                --hit-rates 0,25,50,75,100 \
+                --num-prompts 8 \
+                --num-predict 32 \
+                --warmup \
+                --out /work/results.json
+              echo "DONE -- sleeping for retrieval"
+              sleep 1800
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: scripts
+          configMap:
+            name: prefix-cache-probe-script
+            defaultMode: 0755
+        - name: work
+          emptyDir: {}
