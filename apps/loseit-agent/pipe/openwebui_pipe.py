@@ -58,17 +58,16 @@ class Pipe:
     ) -> str:
         prompt = body["messages"][-1]["content"]
 
+        # Open WebUI doesn't reliably persist Pipe-side __metadata__ mutations
+        # across chat turns, so we can't track pending HITL waits there.
+        # Instead the server maintains a chat_id → exec_id map and decides
+        # run-vs-resume internally — we just always POST /run with chat_id.
         meta = __metadata__ or {}
-        pending = (meta.get("loseit_agent") or {}).get("pending_exec_id")
+        chat_id = meta.get("chat_id") or body.get("chat_id") or body.get("session_id")
 
-        if pending:
-            url = f"{self.valves.agent_url}/resume"
-            payload = {"exec_id": pending, "value": prompt}
-            initial_status = f"Resuming run {pending[:8]}…"
-        else:
-            url = f"{self.valves.agent_url}/run"
-            payload = {"prompt": prompt}
-            initial_status = "Starting agent…"
+        url = f"{self.valves.agent_url}/run"
+        payload = {"prompt": prompt, "chat_id": chat_id}
+        initial_status = "Starting agent…"
 
         started = time.monotonic()
         # Track the last "human-readable" status we showed; the heartbeat task
@@ -94,7 +93,6 @@ class Pipe:
         hb_task = asyncio.create_task(heartbeat())
 
         final_text = ""
-        new_pending: str | None = None
 
         # We build up the chat message text in parallel with the deltas so the
         # function's return value at the end matches what Open WebUI rendered
@@ -156,13 +154,18 @@ class Pipe:
                         last_status["text"] = f"{cp_name}: {phase}"
                     await self._status(__event_emitter__, last_status["text"], done=False)
                 elif kind == "wait":
-                    new_pending = evt.get("exec_id")
+                    # Server already recorded the pending exec_id keyed by
+                    # chat_id; we just need to render the question to the user.
                     question = evt.get("prompt") or "Need clarification."
                     options = evt.get("options") or []
-                    body_text = question
+                    body_text = "\n\n❓ **" + question + "**\n"
                     if options:
-                        body_text += "\n\n" + "\n".join(f"- {o}" for o in options)
-                        body_text += "\n\n(Pick one or type your own.)"
+                        body_text += "\n" + "\n".join(f"- {o}" for o in options)
+                        body_text += "\n\n*(Reply with one of the options above, or type your own — your next message in this chat continues the run.)*"
+                    accumulated += body_text
+                    await __event_emitter__(
+                        {"type": "chat:message:delta", "data": {"content": body_text}}
+                    )
                     final_text = body_text
                     break
                 elif kind == "final":
@@ -196,12 +199,6 @@ class Pipe:
         # Always emit a final done so the shimmer stops.
         elapsed = int(time.monotonic() - started)
         await self._status(__event_emitter__, f"Done ({elapsed}s)", done=True)
-
-        # Persist the wait exec_id so the next message in this chat routes to /resume.
-        if new_pending:
-            meta.setdefault("loseit_agent", {})["pending_exec_id"] = new_pending
-        elif "loseit_agent" in meta:
-            meta["loseit_agent"].pop("pending_exec_id", None)
 
         # Return the accumulated text we already streamed via deltas so the
         # message body is consistent whether OW persists the deltas or the

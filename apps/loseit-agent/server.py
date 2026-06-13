@@ -353,6 +353,11 @@ class _HitlRunState:
     """The Kitaru exec_id, captured from inside the clarify tool body via
     `kitaru.current_execution_id()`. None until clarify fires."""
 
+    chat_id: str | None = None
+    """Open WebUI chat id this run belongs to (when invoked via the Pipe).
+    On wait we register the exec_id under this chat_id in `_PENDING_BY_CHAT`
+    so the next /run from the same chat is recognized as a resume."""
+
 
 
 # Registry keyed by exec_id once the agent run reports it. We also have a
@@ -777,6 +782,46 @@ class RunRequest(BaseModel):
     """Body of POST /run."""
 
     prompt: str = Field(..., description="Natural-language request (search, log, diary, …).")
+    chat_id: str | None = Field(
+        default=None,
+        description=(
+            "Open WebUI chat id, used to track pending HITL waits across chat "
+            "turns. When set, the server checks if this chat already has a "
+            "pending exec_id from a prior wait — if so, the request is "
+            "treated as a resume rather than a new run. Optional; omit for "
+            "direct curl usage."
+        ),
+    )
+
+
+# Pending-wait registry keyed by chat_id. Open WebUI's `__metadata__` doesn't
+# reliably persist Pipe-side dict mutations across chat turns, so the Pipe
+# can't store the pending exec_id there. Instead the Pipe sends `chat_id`
+# with every /run, and the server decides run-vs-resume internally based on
+# this dict.
+_PENDING_BY_CHAT: dict[str, str] = {}
+_PENDING_BY_CHAT_LOCK = threading.Lock()
+
+
+def _mark_pending(chat_id: str | None, exec_id: str) -> None:
+    if not chat_id:
+        return
+    with _PENDING_BY_CHAT_LOCK:
+        _PENDING_BY_CHAT[chat_id] = exec_id
+
+
+def _clear_pending(chat_id: str | None) -> None:
+    if not chat_id:
+        return
+    with _PENDING_BY_CHAT_LOCK:
+        _PENDING_BY_CHAT.pop(chat_id, None)
+
+
+def _get_pending(chat_id: str | None) -> str | None:
+    if not chat_id:
+        return None
+    with _PENDING_BY_CHAT_LOCK:
+        return _PENDING_BY_CHAT.get(chat_id)
 
 
 def require_bearer(authorization: str | None = Header(default=None)) -> None:
@@ -846,13 +891,21 @@ async def _drain_queue_until_terminal(state: _HitlRunState) -> AsyncIterator[str
                 payload = json.loads(payload_line[6:])
                 kind = payload.get("kind")
                 if kind == "wait":
+                    exec_id = payload.get("exec_id")
                     logger.info(
-                        "stream paused at wait exec_id=%s name=%s",
-                        payload.get("exec_id"),
+                        "stream paused at wait exec_id=%s name=%s chat_id=%s",
+                        exec_id,
                         payload.get("wait_name"),
+                        state.chat_id,
                     )
+                    # Mark the chat as having a pending wait so the next /run
+                    # from the same chat_id routes to resume instead of run.
+                    if state.chat_id and exec_id:
+                        _mark_pending(state.chat_id, exec_id)
                     return
                 if kind in ("final", "error"):
+                    # Clear any pending-by-chat pointer; this run is done.
+                    _clear_pending(state.chat_id)
                     _hitl_finalize(state)
                     return
         except Exception:  # noqa: BLE001 — never drop a frame for parse errors
@@ -869,7 +922,7 @@ def _hitl_finalize(state: _HitlRunState) -> None:
             _HITL_PENDING = None
 
 
-async def _agent_stream(prompt: str) -> AsyncIterator[str]:
+async def _agent_stream(prompt: str, chat_id: str | None = None) -> AsyncIterator[str]:
     """Drive a fresh KitaruAgent run and stream its SSE frames.
 
     Architecture (S7 — diverged from the S5/S6 event_stream_handler path):
@@ -916,6 +969,7 @@ async def _agent_stream(prompt: str) -> AsyncIterator[str]:
         task=asyncio.current_task(),  # placeholder, overwritten below
         loop=asyncio.get_running_loop(),
     )
+    state.chat_id = chat_id
 
     async def run_agent() -> None:
         try:
@@ -957,7 +1011,9 @@ async def _agent_stream(prompt: str) -> AsyncIterator[str]:
             _hitl_finalize(state)
 
 
-async def _resume_stream(state: _HitlRunState, value: str) -> AsyncIterator[str]:
+async def _resume_stream(
+    state: _HitlRunState, value: str, chat_id: str | None = None
+) -> AsyncIterator[str]:
     """Resume a paused agent run with `value` and stream subsequent SSE frames.
 
     The wait_name we use to call `client.executions.input(...)` is the one
@@ -981,9 +1037,30 @@ async def _resume_stream(state: _HitlRunState, value: str) -> AsyncIterator[str]
     # a thread so the FastAPI event loop doesn't block on the HTTP round-
     # trip to the Kitaru server. The wait's polling loop on the workflow
     # thread (default 5s interval) picks the resolution up within ~5s.
+    # Race: the wait SSE event is pushed onto the queue BEFORE the worker
+    # thread's `kitaru.wait()` call registers the wait condition with the
+    # Kitaru server. If the user (or our Pipe) replies extremely fast, the
+    # resume can arrive before the wait is registered → "no pending waits to
+    # resolve". Retry briefly with exponential backoff to absorb that window.
     def _provide_input() -> None:
+        from kitaru.errors import KitaruStateError  # type: ignore[import-not-found]
+
         client = KitaruClient()
-        client.executions.input(state.exec_id, wait=state.wait_name, value=value)
+        delays = [0.0, 0.2, 0.5, 1.0, 2.0, 3.0]
+        last_exc: Exception | None = None
+        for delay in delays:
+            if delay:
+                time.sleep(delay)
+            try:
+                client.executions.input(state.exec_id, wait=state.wait_name, value=value)
+                return
+            except KitaruStateError as exc:
+                last_exc = exc
+                if "no pending waits" not in str(exc).lower():
+                    raise
+                # Retry — the worker thread hasn't registered the wait yet.
+        if last_exc is not None:
+            raise last_exc
 
     try:
         await asyncio.to_thread(_provide_input)
@@ -1013,13 +1090,45 @@ async def _resume_stream(state: _HitlRunState, value: str) -> AsyncIterator[str]
 async def run(body: RunRequest) -> StreamingResponse:
     """Stream the agent's tool/model/final/wait events for the given prompt.
 
-    Stream may end with `final`, `error`, OR `wait` — in the `wait` case the
-    Pipe persists `exec_id` in chat metadata and routes the next user turn to
-    `/resume`.
+    If `chat_id` is provided AND this chat already has a pending HITL wait
+    (recorded server-side from a previous `/run` that emitted a `wait`),
+    the request is internally routed to the resume path instead of starting
+    a fresh agent run. This sidesteps Open WebUI's unreliable __metadata__
+    persistence — the Pipe doesn't need to track exec_id across turns;
+    just sending chat_id is enough.
+
+    Stream may end with `final`, `error`, OR `wait` — in the `wait` case
+    the chat continues on the user's next message with the same chat_id.
     """
-    logger.info("run start prompt_len=%d", len(body.prompt))
+    pending_exec_id = _get_pending(body.chat_id)
+    if pending_exec_id:
+        with _HITL_LOCK:
+            state = _HITL_RUNS.get(pending_exec_id)
+        if state is None:
+            # State lost (pod restart?). Clear the stale pointer and fall
+            # through to a fresh run so the user isn't stuck forever.
+            logger.warning(
+                "run: pending exec_id %s for chat %s has no live state; "
+                "clearing and starting fresh",
+                pending_exec_id,
+                body.chat_id,
+            )
+            _clear_pending(body.chat_id)
+        else:
+            logger.info(
+                "run: chat %s has pending wait exec_id=%s — resuming",
+                body.chat_id,
+                pending_exec_id,
+            )
+            return StreamingResponse(
+                _resume_stream(state, body.prompt, chat_id=body.chat_id),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
+    logger.info("run start prompt_len=%d chat_id=%s", len(body.prompt), body.chat_id)
     return StreamingResponse(
-        _agent_stream(body.prompt),
+        _agent_stream(body.prompt, chat_id=body.chat_id),
         media_type="text/event-stream",
         headers={
             # Disable proxy buffering so Traefik flushes each event as it
