@@ -27,13 +27,15 @@ graph TD
     end
 
     %% ── OBSERVABILITY ────────────────────────────────────────────
-    subgraph obs [Observability · opentelemetry-*]
+    subgraph obs [Observability · opentelemetry-* + kube-state-metrics]
+        KSM[kube-state-metrics<br/><sub>v7.4.0</sub>]:::release
         BS_SEC{{Secret:<br/>betterstack-sandbox-ingest-token}}:::hook
         OTEL_OP[opentelemetry-operator<br/><sub>v0.115.0</sub>]:::release
         OTEL_COL{{OpenTelemetryCollector:<br/>gateway + RBAC}}:::hook
 
         BS_SEC -- presync --> OTEL_OP
         OTEL_OP -- postsync --> OTEL_COL
+        KSM --> OTEL_OP
     end
 
     %% ── PRIVATE NETWORK ──────────────────────────────────────────
