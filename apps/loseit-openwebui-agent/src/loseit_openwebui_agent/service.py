@@ -243,14 +243,15 @@ async def _stream_execution(
 
         if status in ("completed", "succeeded", "finished"):
             output = getattr(execution, "output", None)
-            artifacts = await asyncio.to_thread(execution.list_artifacts)
-            if not output and artifacts:
-                for art in artifacts:
-                    val = await asyncio.to_thread(art.load) if hasattr(art, "load") else None
-                    if isinstance(val, str):
-                        output = val
-                        break
-            yield _sse({"kind": "final", "text": str(output or "(no output)")})
+            # Note: list_artifacts() requires the s3fs+boto3 artifact_store
+            # implementation to be importable, which the gateway image
+            # intentionally omits. Kitaru's `execution.output` is None even
+            # on success today (Kitaru doesn't capture the flow's str return
+            # into that field), so the chat gets a generic completion frame.
+            # The per-tool icons telegraph what happened; the actual agent
+            # answer would need to be persisted to Kitaru metadata for the
+            # gateway to surface it.
+            yield _sse({"kind": "final", "text": str(output or "(flow completed — see Kitaru run inspector for tool detail)")})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
