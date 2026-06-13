@@ -48,7 +48,11 @@ All same-namespace + cross-namespace traffic uses Kubernetes DNS. Edge traffic f
 - **Pipe ↔ agent**: shared bearer token in a Kubernetes Secret, set as `AGENT_TOKEN` env var inside Open WebUI pod (via `extraEnvVars`) and as `AGENT_TOKEN_EXPECTED` env var inside the agent pod. Pipe sends `Authorization: Bearer <AGENT_TOKEN>`. Defense in depth — Tailscale already gates external reach, this guards against accidental in-cluster cross-namespace calls.
 - **Agent ↔ Ollama**: none (Ollama ClusterIP is already in-cluster only; ingress also has no auth, lives on Tailscale).
 - **Agent ↔ Kitaru**: API key stored in the `kitaru` namespace Secret, mounted into agent pod. (Kitaru's local mode uses no auth, but the server image likely requires a token — confirmed in S1.)
-- **Agent ↔ Lose It!**: the user's existing JWT, mounted from a Kubernetes Secret (`loseit-token`) sourced from `~/.config/loseit/token` at deploy time. Read-only mount at `/home/agent/.config/loseit/token`.
+- **Agent ↔ Lose It!**: the user's existing JWT lives in **Kitaru's secrets store** (which is just rows in the Kitaru/ZenML metadata DB), inserted via `kitaru secret create loseit-token --token=<value>`. The agent fetches it at startup via the Kitaru client (`client.secrets.get("loseit-token")["token"]`) and writes it to the in-pod path that the `loseit` CLI expects (`/home/agent/.config/loseit/token`). No Kubernetes Secret for this token. Rationale: keeps all agent-relevant credentials in one centralized store (the same store that holds API keys for OpenAI/Anthropic/etc. when we add them) instead of split across `kubectl` and Kitaru.
+
+### Image registry
+
+All agent images are built and pushed to the homelab Harbor at `cr.priv.mlops-club.org`, namespace `loseit-agent`, under the path `cr.priv.mlops-club.org/loseit-agent/agent:<git-sha>`. K8s pulls via the `harbor-creds` Secret created at deploy time (same pattern as `apps/come-follow-me-app/`).
 
 ### Streaming wire format (FastAPI → Pipe)
 
@@ -107,7 +111,7 @@ Each slice is end-to-end runnable. After each slice the system is at a strictly 
 ### S4 — Replace echo with real pydantic-ai loseit-search agent
 - Install `lose-it` + `pydantic-ai` in the agent image.
 - `server.py`: `POST /run` calls a real pydantic-ai `Agent(model=qwen3:8b)` with a single `search` tool wrapping `loseit search`.
-- Mount the loseit token Secret into the agent pod.
+- **Loseit token via Kitaru secrets:** insert the token with `kitaru secret create loseit-token --token=$(cat ~/.config/loseit/token)`; the agent's startup code calls `kitaru.client.KitaruClient().secrets.get("loseit-token")` and materializes it at `/home/agent/.config/loseit/token` (chmod 600). No K8s Secret for this token.
 - **Verify:** Chat "find guacamole" → Pipe shows `→ search(guacamole)` status, then a streamed list of 3-5 top results.
 
 ### S5 — KitaruAgent wrapper + live status events

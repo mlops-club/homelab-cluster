@@ -1,0 +1,127 @@
+# loseit-agent — slice S2 (echo FastAPI behind private Tailscale ingress).
+#
+# Topology (see ARCHITECTURE.md for the full picture):
+#   user → traefik-private (Tailscale only) → Ingress → Service → Deployment(server.py)
+#
+# Secrets:
+#   - harbor-creds: docker-registry pull secret, created by deploy.sh.
+#   - agent-token: opaque secret with key `token` (32 random hex bytes),
+#                  created by deploy.sh on first deploy and NOT rotated on
+#                  subsequent deploys (would invalidate Pipe config in S3).
+#                  Mounted as the AGENT_TOKEN_EXPECTED env var so the server
+#                  rejects requests without a matching bearer.
+#
+# The Namespace is intentionally apply-able via this manifest too so that the
+# whole app is described in one place. deploy.sh still pre-creates the ns
+# because the Harbor pull secret has to land before the Deployment pulls.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loseit-agent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loseit-agent
+  namespace: loseit-agent
+  labels:
+    app: loseit-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loseit-agent
+  template:
+    metadata:
+      labels:
+        app: loseit-agent
+    spec:
+      imagePullSecrets:
+        - name: harbor-creds
+      containers:
+        - name: agent
+          image: cr.priv.mlops-club.org/loseit-agent/agent:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: AGENT_TOKEN_EXPECTED
+              valueFrom:
+                secretKeyRef:
+                  name: agent-token
+                  key: token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loseit-agent
+  namespace: loseit-agent
+  labels:
+    app: loseit-agent
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  selector:
+    app: loseit-agent
+---
+# Private Tailscale-only Ingress. Mirrors apps/ollama/manifest.yaml shape:
+# traefik-private class, websecure entrypoint, wildcard TLS from the
+# reflector-replicated priv-wildcard-tls secret (auto-copied into every ns).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: loseit-agent
+  namespace: loseit-agent
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+    - hosts:
+        - loseit-agent.priv.mlops-club.org
+      secretName: priv-wildcard-tls
+  rules:
+    - host: loseit-agent.priv.mlops-club.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: loseit-agent
+                port:
+                  number: 80
