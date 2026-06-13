@@ -488,12 +488,20 @@ def clarify(question: str, options: list[str] | None = None) -> str:
     # This call is what makes step 7 of the S7 verification pass — Kitaru
     # records a checkpoint+wait pair against the execution.
     metadata = {"options": list(options) if options else [], "source": "loseit-agent.clarify"}
+    # Timeout: 10 minutes. This is the WALL-CLOCK budget the user has to reply
+    # to a clarify before the wait auto-fails. Originally 24h but every
+    # abandoned wait parks a worker thread polling Kitaru every 5s, which
+    # saturates the thread pool after a few unresumed chat conversations and
+    # makes the agent unable to take new requests. Trade-off: a user who
+    # walks away from chat for >10min loses that conversation and has to
+    # start over. Acceptable for the single-user homelab; revisit if we ever
+    # see a legit need for long-deferred resumes.
     answer = kitaru.wait(
         schema=str,
         name=wait_name,
         question=question,
         metadata=metadata,
-        timeout=24 * 60 * 60,
+        timeout=10 * 60,
     )
     logger.info("clarify: wait resolved with value=%r", answer)
     return str(answer) if answer is not None else ""
