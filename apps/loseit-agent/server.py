@@ -64,23 +64,18 @@ import logging
 import os
 import subprocess
 import threading
+import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Literal
+from typing import AsyncIterator, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import (
-    FunctionToolCallEvent,
-    FunctionToolResultEvent,
-    PartStartEvent,
-    ToolCallPart,
-)
+from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -358,16 +353,6 @@ class _HitlRunState:
     """The Kitaru exec_id, captured from inside the clarify tool body via
     `kitaru.current_execution_id()`. None until clarify fires."""
 
-    resume_event: threading.Event = field(default_factory=threading.Event)
-    """Set by POST /resume to wake the worker thread blocked inside clarify().
-    We bypass kitaru.wait() because its 0.15.0 pydantic-ai adapter refuses
-    inline HITL from agent-tool scope (`_raise_checkpoint_wait_not_supported`),
-    even with `@hitl_tool` + `granular_checkpoints=True` + per-tool checkpoint
-    disable. A plain Event works because clarify still runs on the worker
-    thread courtesy of `allow_sync_tool_body_waits=True`."""
-
-    resume_value: str = ""
-    """Set by POST /resume just before signaling resume_event."""
 
 
 # Registry keyed by exec_id once the agent run reports it. We also have a
@@ -484,18 +469,29 @@ def clarify(question: str, options: list[str] | None = None) -> str:
     except RuntimeError as exc:  # pragma: no cover — loop closed mid-run
         logger.warning("clarify: failed to push wait event: %s", exc)
 
-    # Block the worker thread on a plain Event. /resume sets resume_value
-    # then signals resume_event. We can't use kitaru.wait() because the
-    # 0.15.0 adapter refuses inline HITL from tool scope (see comment on
-    # _HitlRunState.resume_event).
-    state.resume_event.clear()
-    state.resume_value = ""
-    if not state.resume_event.wait(timeout=24 * 60 * 60):
-        logger.warning("clarify: 24h wait timed out, returning empty answer")
-        return ""
-    answer = state.resume_value
-    logger.info("clarify: resumed with value=%r", answer)
-    return answer
+    # The Kitaru wait. `schema=str` constrains the user input to a string
+    # (which is what the Pipe always supplies — the user's chat message).
+    # This call blocks the workflow thread, polling the Kitaru server every
+    # 5s for the wait condition to be resolved. `/resume` resolves it via
+    # `client.executions.input(exec_id, wait=name, value=...)`. A 24h
+    # timeout means the worker thread polls the whole time without ever
+    # transitioning the run to PAUSED (so we don't need to wrestle with
+    # snapshot-based resume); if the pod restarts, the wait DOES land in
+    # PAUSED on the server and is recoverable via `kitaru executions input`
+    # interactively from a human laptop.
+    #
+    # This call is what makes step 7 of the S7 verification pass — Kitaru
+    # records a checkpoint+wait pair against the execution.
+    metadata = {"options": list(options) if options else [], "source": "loseit-agent.clarify"}
+    answer = kitaru.wait(
+        schema=str,
+        name=wait_name,
+        question=question,
+        metadata=metadata,
+        timeout=24 * 60 * 60,
+    )
+    logger.info("clarify: wait resolved with value=%r", answer)
+    return str(answer) if answer is not None else ""
 
 
 def _run_loseit(args: list[str], *, json_output: bool = True) -> str:
@@ -545,15 +541,79 @@ def _run_loseit(args: list[str], *, json_output: bool = True) -> str:
 
 
 # --------- Tools (ported from tools/agent-sandbox/agent.py) ----------------
+#
+# Each tool is wrapped by `_with_live_status` so its call shows up as a
+# live chat line in Open WebUI (`tool` + `tool_done` SSE frames). This is
+# the only place we get per-tool visibility in S7 — pydantic-ai's
+# event_stream_handler would give the same data more cleanly but is
+# mutually exclusive with `kitaru.wait()` in granular mode (see
+# _agent_stream docstring). The wrapper runs OUTSIDE Kitaru's per-tool
+# checkpoint wrapping, so it doesn't trip the no-wait-in-checkpoint guard.
+
+
+def _with_live_status(name: str, args_preview_fn: Callable[..., str]):
+    """Wrap a sync tool body to emit `tool` / `tool_done` SSE events.
+
+    The events flow through the active `_HitlRunState`'s queue (resolved
+    via the same _hitl_resolve_active_state() helper clarify uses).
+    `args_preview_fn(*args, **kwargs) -> str` is a per-tool function
+    that produces the short args label the Pipe surfaces in the chat
+    line (e.g. `search` → `query`, `log_food` → `100g of <food_id>`).
+    """
+
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        import functools
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            state = _hitl_resolve_active_state()
+            call_id = uuid.uuid4().hex[:10]
+            try:
+                preview = args_preview_fn(*args, **kwargs)
+            except Exception:  # noqa: BLE001
+                preview = ""
+            if state is not None:
+                start_frame = _sse({
+                    "kind": "tool",
+                    "name": name,
+                    "args_preview": preview[:80],
+                    "call_id": call_id,
+                })
+                try:
+                    state.loop.call_soon_threadsafe(state.queue.put_nowait, start_frame)
+                except RuntimeError:
+                    pass
+            t0 = time.monotonic()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                if state is not None:
+                    elapsed = time.monotonic() - t0
+                    done_frame = _sse({
+                        "kind": "tool_done",
+                        "name": name,
+                        "call_id": call_id,
+                        "elapsed_s": round(elapsed, 2),
+                    })
+                    try:
+                        state.loop.call_soon_threadsafe(state.queue.put_nowait, done_frame)
+                    except RuntimeError:
+                        pass
+
+        return wrapper
+
+    return decorator
 
 
 @_inner_agent.tool_plain
+@_with_live_status("search", lambda query: query)
 def search(query: str) -> str:
     """Search the Lose It! food database for candidates matching `query`."""
     return _run_loseit(["search", query])
 
 
 @_inner_agent.tool_plain
+@_with_live_status("describe_food", lambda food_ids: f"{len(food_ids)} ids")
 def describe_food(food_ids: list[str]) -> str:
     """Inspect one or more foods by their hex `food_id`s (concurrently).
 
@@ -566,7 +626,13 @@ def describe_food(food_ids: list[str]) -> str:
     return _run_loseit(["describe-food", *food_ids])
 
 
+def _log_food_preview(food_id, meal, serving_amount=None, serving_unit=None, servings=1.0, **_):
+    qty = f"{serving_amount}{serving_unit}" if serving_amount else f"{servings} servings"
+    return f"{qty} → {meal} ({food_id[:8]})"
+
+
 @_inner_agent.tool_plain
+@_with_live_status("log_food", _log_food_preview)
 def log_food(
     food_id: str,
     meal: Literal["breakfast", "lunch", "dinner", "snacks"],
@@ -619,6 +685,7 @@ def log_food(
 
 
 @_inner_agent.tool_plain
+@_with_live_status("diary", lambda on_date=None: on_date or "today")
 def diary(on_date: str | None = None) -> str:
     """Read the user's diary for a given date (default: today).
 
@@ -633,6 +700,7 @@ def diary(on_date: str | None = None) -> str:
 
 
 @_inner_agent.tool_plain
+@_with_live_status("whoami", lambda: "")
 def whoami() -> str:
     """Print resolved Lose It! client configuration."""
     return _run_loseit(["whoami"])
@@ -676,6 +744,14 @@ agent = KitaruAgent(
     name="loseit-agent",
     checkpoint_strategy="calls",
     granular_checkpoints=True,
+    # The opt-out is required by KitaruAgent's constructor whenever
+    # `allow_sync_tool_body_waits=True` is set (the SDK refuses the flag
+    # otherwise — "requires at least one per-tool checkpoint opt-out").
+    # Skipping the synthetic `clarify_tool` checkpoint here is fine:
+    # clarify's work IS the wait, and we record the wait against the run
+    # via the SSE `wait` event + the in-memory _HitlRunState anyway. The
+    # other 5 tools still get per-call `*_tool` checkpoints in the Kitaru
+    # UI for inspection.
     tool_checkpoint_config_by_name={"clarify": False},
     allow_sync_tool_body_waits=True,
 )
@@ -734,30 +810,6 @@ def require_bearer(authorization: str | None = Header(default=None)) -> None:
 async def healthz() -> dict[str, str]:
     """Liveness/readiness probe. No auth so kubelet doesn't need the token."""
     return {"status": "ok"}
-
-
-def _args_preview(part: ToolCallPart) -> str:
-    """Render a tool-call's arguments as a compact one-liner.
-
-    The Pipe surfaces this as the status text (e.g. `→ search(guacamole)`), so
-    we keep it short and avoid quoting JSON.
-    """
-    args = part.args
-    if isinstance(args, str):
-        try:
-            args = json.loads(args)
-        except Exception:
-            return args[:80]
-    if isinstance(args, dict):
-        # Heuristic: a single scalar arg renders as its value; otherwise show
-        # the whole dict.
-        if len(args) == 1:
-            (value,) = args.values()
-            if isinstance(value, str):
-                return value[:80]
-            return json.dumps(value, separators=(",", ":"))[:80]
-        return json.dumps(args, separators=(",", ":"))[:80]
-    return str(args)[:80]
 
 
 async def _drain_queue_until_terminal(state: _HitlRunState) -> AsyncIterator[str]:
@@ -923,21 +975,26 @@ async def _resume_stream(state: _HitlRunState, value: str) -> AsyncIterator[str]
         _hitl_finalize(state)
         return
 
-    # Signal the worker thread waiting inside clarify(). We bypass
-    # kitaru.executions.input because the 0.15.0 adapter blocked the wait
-    # before it could register on the Kitaru server side anyway (see the
-    # comment on _HitlRunState.resume_event).
+    # Provide the input to the Kitaru wait condition. This is what unblocks
+    # the `kitaru.wait()` call sitting inside `clarify` on the workflow
+    # thread. We use the high-level KitaruClient (sync API) and dispatch to
+    # a thread so the FastAPI event loop doesn't block on the HTTP round-
+    # trip to the Kitaru server. The wait's polling loop on the workflow
+    # thread (default 5s interval) picks the resolution up within ~5s.
+    def _provide_input() -> None:
+        client = KitaruClient()
+        client.executions.input(state.exec_id, wait=state.wait_name, value=value)
+
     try:
-        state.resume_value = value
-        state.resume_event.set()
+        await asyncio.to_thread(_provide_input)
         logger.info(
-            "resume: signaled worker for exec_id=%s wait=%s value=%r",
+            "resume: input provided to exec_id=%s wait=%s value=%r",
             state.exec_id,
             state.wait_name,
             value,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("resume: failed to signal worker thread")
+        logger.exception("resume: executions.input failed")
         yield _sse(
             {"kind": "error", "message": f"resume failed: {type(exc).__name__}: {exc}"}
         )

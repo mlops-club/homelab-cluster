@@ -8,18 +8,35 @@ Wire format consumed from the agent's SSE stream (one JSON object per `data:` li
     {"kind":"tool",       "name":"...", "args_preview":"...", "call_id":"..."}
     {"kind":"tool_done",  "call_id":"..."}
     {"kind":"model_call", "turn": 1}
+    {"kind":"checkpoint", "name":"search_tool", "phase":"started"|"finished",
+                          "elapsed_s": 1.5}
     {"kind":"wait",       "exec_id":"...", "wait_name":"...", "prompt":"...", "options":[...]}
     {"kind":"final",      "text":"..."}
     {"kind":"error",      "message":"..."}
+
+UX features:
+  - Heartbeat status every 3s while the agent is silent so the chat doesn't
+    feel like it hung. Shows elapsed-since-start.
+  - Surfaces Kitaru `checkpoint` events as live status — the agent's per-call
+    checkpoints (`search_tool`, `log_food_tool`, …) appear in the chat as the
+    agent works, even though we don't get pydantic-ai's per-call SSE frames
+    (those are mutually exclusive with kitaru.wait() in granular mode).
+  - On `wait`, renders the question + options as a normal chat message so
+    the user can reply (their reply auto-routes to /resume).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from typing import Any, AsyncIterator
 
 import httpx
 from pydantic import BaseModel
+
+
+HEARTBEAT_INTERVAL_S = 3.0
 
 
 class Pipe:
@@ -47,14 +64,48 @@ class Pipe:
         if pending:
             url = f"{self.valves.agent_url}/resume"
             payload = {"exec_id": pending, "value": prompt}
-            await self._status(__event_emitter__, "Resuming…", done=False)
+            initial_status = f"Resuming run {pending[:8]}…"
         else:
             url = f"{self.valves.agent_url}/run"
             payload = {"prompt": prompt}
-            await self._status(__event_emitter__, "Starting agent…", done=False)
+            initial_status = "Starting agent…"
+
+        started = time.monotonic()
+        # Track the last "human-readable" status we showed; the heartbeat task
+        # re-emits it with an updated elapsed counter so the chat shimmer never
+        # looks frozen for more than HEARTBEAT_INTERVAL_S.
+        last_status: dict[str, str] = {"text": initial_status}
+
+        await self._status(__event_emitter__, f"{initial_status} (0s)", done=False)
+
+        async def heartbeat() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(HEARTBEAT_INTERVAL_S)
+                    elapsed = int(time.monotonic() - started)
+                    await self._status(
+                        __event_emitter__,
+                        f"{last_status['text']} ({elapsed}s)",
+                        done=False,
+                    )
+            except asyncio.CancelledError:
+                return
+
+        hb_task = asyncio.create_task(heartbeat())
 
         final_text = ""
         new_pending: str | None = None
+
+        # We build up the chat message text in parallel with the deltas so the
+        # function's return value at the end matches what Open WebUI rendered
+        # via delta events. Different OW versions handle "return X after
+        # streaming deltas" differently; returning the same text we streamed
+        # guarantees the chat shows the full trace either way.
+        accumulated = ""
+
+        # Track in-flight tool calls so tool_done can render the elapsed time
+        # next to the matching opening line.
+        active_calls: dict[str, str] = {}  # call_id -> markdown-line text
 
         try:
             async for evt in self._stream(url, payload):
@@ -62,12 +113,48 @@ class Pipe:
                 if kind == "tool":
                     name = evt.get("name", "?")
                     args = evt.get("args_preview", "")
-                    await self._status(__event_emitter__, f"→ {name}({args})", done=False)
+                    call_id = evt.get("call_id", "")
+                    line = f"\n🔧 `{name}({args})` "
+                    active_calls[call_id] = line
+                    accumulated += line
+                    last_status["text"] = f"→ {name}({args})"
+                    await self._status(__event_emitter__, last_status["text"], done=False)
+                    # Emit the tool call as a markdown line in the chat
+                    await __event_emitter__(
+                        {"type": "chat:message:delta", "data": {"content": line}}
+                    )
                 elif kind == "tool_done":
-                    pass  # noop — the next status update overwrites
+                    call_id = evt.get("call_id", "")
+                    elapsed = evt.get("elapsed_s")
+                    suffix = f"✓ ({elapsed:.1f}s)\n" if isinstance(elapsed, (int, float)) else "✓\n"
+                    accumulated += suffix
+                    active_calls.pop(call_id, None)
+                    last_status["text"] = "thinking"
+                    await self._status(__event_emitter__, last_status["text"], done=False)
+                    await __event_emitter__(
+                        {"type": "chat:message:delta", "data": {"content": suffix}}
+                    )
                 elif kind == "model_call":
                     turn = evt.get("turn", "?")
-                    await self._status(__event_emitter__, f"thinking (turn {turn})", done=False)
+                    last_status["text"] = f"thinking (turn {turn})"
+                    await self._status(__event_emitter__, last_status["text"], done=False)
+                elif kind == "checkpoint":
+                    # Kitaru per-call checkpoint surfaced live by the server's
+                    # polling task — visible in lieu of pydantic-ai's per-call
+                    # SSE frames (which are turned off for kitaru.wait() reasons).
+                    cp_name = evt.get("name", "?")
+                    phase = evt.get("phase", "")
+                    elapsed_s = evt.get("elapsed_s")
+                    if phase == "started":
+                        last_status["text"] = f"→ {cp_name}"
+                    elif phase == "finished":
+                        if elapsed_s is not None:
+                            last_status["text"] = f"✓ {cp_name} ({elapsed_s:.1f}s)"
+                        else:
+                            last_status["text"] = f"✓ {cp_name}"
+                    else:
+                        last_status["text"] = f"{cp_name}: {phase}"
+                    await self._status(__event_emitter__, last_status["text"], done=False)
                 elif kind == "wait":
                     new_pending = evt.get("exec_id")
                     question = evt.get("prompt") or "Need clarification."
@@ -80,6 +167,12 @@ class Pipe:
                     break
                 elif kind == "final":
                     final_text = evt.get("text", "")
+                    chunk = "\n\n" + final_text
+                    accumulated += chunk
+                    # Append a separator + the final summary as chat content.
+                    await __event_emitter__(
+                        {"type": "chat:message:delta", "data": {"content": chunk}}
+                    )
                 elif kind == "error":
                     msg = evt.get("message", "agent error")
                     await __event_emitter__(
@@ -91,10 +184,18 @@ class Pipe:
             await __event_emitter__(
                 {"type": "notification", "data": {"type": "error", "content": str(exc)}}
             )
+            hb_task.cancel()
             return f"Pipe transport error: {exc}"
+        finally:
+            hb_task.cancel()
+            try:
+                await hb_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
         # Always emit a final done so the shimmer stops.
-        await self._status(__event_emitter__, "Done", done=True)
+        elapsed = int(time.monotonic() - started)
+        await self._status(__event_emitter__, f"Done ({elapsed}s)", done=True)
 
         # Persist the wait exec_id so the next message in this chat routes to /resume.
         if new_pending:
@@ -102,7 +203,10 @@ class Pipe:
         elif "loseit_agent" in meta:
             meta["loseit_agent"].pop("pending_exec_id", None)
 
-        return final_text
+        # Return the accumulated text we already streamed via deltas so the
+        # message body is consistent whether OW persists the deltas or the
+        # return value.
+        return accumulated if accumulated else final_text
 
     async def _stream(self, url: str, payload: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         headers = {"Content-Type": "application/json"}
