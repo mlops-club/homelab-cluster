@@ -1,0 +1,57 @@
+# Namespace + private Ingress for Kitaru.
+# The Kitaru server Deployment, Service, ServiceAccount, and PVC are created by
+# the official Kitaru Helm chart (OCI artifact at public.ecr.aws/zenml/kitaru) —
+# see deploy.sh and values.yaml.
+#
+# Kitaru is ZenML's open-source durable-execution layer for AI agents
+# (https://github.com/zenml-io/kitaru). The chart wraps the ZenML server
+# Helm chart and ships the `zenmldocker/kitaru` image, which layers the
+# Kitaru UI on top of the ZenML metadata server. Same SQLite + PVC model
+# as the upstream local mode, but containerized.
+#
+# Storage: the chart's PVC `kitaru-server-config` is provisioned dynamically
+# from the cluster default StorageClass (`local-path`, k3s built-in). Size
+# is bumped from the chart default (1Gi) to 20Gi via values.yaml so SQLite +
+# artifact metadata + any future schema growth has headroom.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kitaru
+
+---
+# Private Tailscale-only Ingress in front of the chart's ClusterIP Service.
+# Mirrors the open-webui / ollama Ingress pattern:
+#   - traefik-private class (Tailnet-only entrypoint)
+#   - websecure entrypoint + TLS via the cluster-wide reflector-replicated
+#     priv-wildcard-tls secret (auto-mirrored into every namespace by the
+#     reflector Deployment in the traefik-private namespace)
+#   - hostname registered automatically by external-dns watching this class
+# Reachable only from devices on the Tailnet — no public exposure.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kitaru
+  namespace: kitaru
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+    - hosts:
+        - kitaru.priv.mlops-club.org
+      secretName: priv-wildcard-tls
+  rules:
+    - host: kitaru.priv.mlops-club.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Service name follows the Kitaru chart convention:
+                # <release-name>. The release is installed as "kitaru-server".
+                name: kitaru-server
+                port:
+                  number: 80

@@ -1,0 +1,57 @@
+# Helm values for the Kitaru server (chart: oci://public.ecr.aws/zenml/kitaru).
+#
+# Workload assumptions:
+#   - Single-user homelab; the bundled SQLite + chart-provisioned PVC are
+#     sufficient. No MySQL.
+#   - Edge access is fronted by our own Ingress in manifest.yaml (traefik-private
+#     class on kitaru.priv.mlops-club.org); the chart's Ingress stays disabled
+#     so we keep ingress concerns in one consistent place across apps/.
+#   - The CLI / agent reaches the server in-cluster at
+#     http://kitaru-server.kitaru.svc.cluster.local:80 and from Tailnet devices
+#     at https://kitaru.priv.mlops-club.org.
+
+kitaru:
+
+  server:
+    # Match the homelab convention; not load-bearing for the chart, but the
+    # server uses serverURL when generating login redirects shown to the CLI.
+    serverURL: https://kitaru.priv.mlops-club.org
+
+    image:
+      repository: zenmldocker/kitaru
+      pullPolicy: IfNotPresent
+      # Chart 0.2.0's appVersion default points at a non-existent tag —
+      # 0.94.1 is the underlying ZenML version, not a Kitaru image tag.
+      # Pin explicitly to the latest published Kitaru image.
+      tag: "0.15.0"
+
+    # No telemetry from a private homelab.
+    analyticsOptIn: false
+
+    database:
+      # SQLite persisted via a PVC. We size up from the chart default (1Gi) to
+      # 20Gi — plenty of headroom for SQLite + small artifact metadata for
+      # foreseeable single-user use.
+      persistence:
+        enabled: true
+        size: 20Gi
+        # Use k3s's built-in local-path StorageClass (cluster default).
+        storageClassName: local-path
+
+    # Keep the chart-managed Ingress disabled. We ship our own Ingress in
+    # manifest.yaml so the traefik-private + reflected wildcard TLS pattern
+    # stays uniform across apps/ollama, apps/open-webui, and apps/kitaru.
+    ingress:
+      enabled: false
+
+    service:
+      type: ClusterIP
+      port: 80
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi

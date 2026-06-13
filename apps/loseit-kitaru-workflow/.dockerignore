@@ -1,0 +1,7 @@
+.venv-deploy
+.kitaru
+__pycache__
+*.pyc
+.git
+.pytest_cache
+.ruff_cache
