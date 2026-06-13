@@ -104,15 +104,16 @@ Each slice is end-to-end runnable. After each slice the system is at a strictly 
 
 ### S3 — Open WebUI Pipe ↔ echo round-trip in chat
 - `apps/loseit-agent/pipe/openwebui_pipe.py` — async Pipe class with valves for `agent_url` and `auth_token`; subscribes to SSE, maps `tool`/`tool_done` to `status` event_emitter calls, returns `final.text`.
-- Pipe uploaded to Open WebUI Workspace → Functions (manual one-time step, documented in README). A `pipe-config-snapshot.json` is committed for repeatability.
-- Add `AGENT_TOKEN` to Open WebUI's `extraEnvVars` in `apps/open-webui/values.yaml` (sourced from a Secret) and `helm upgrade`.
-- **Verify:** In the chat UI, pick model "loseit-agent" (the Pipe appears as a model), type "hi", see status `→ echo(hi)` appear, then a streamed assistant message "echo: hi".
+- `apps/loseit-agent/pipe/install.sh` — uploads the Pipe to Open WebUI via the admin REST API (`/api/v1/functions/create` + `.../valves/update` + `.../toggle`). Idempotent. Requires either `OPENWEBUI_EMAIL`+`OPENWEBUI_PASSWORD` (Option A) or `OPENWEBUI_API_KEY` (Option B) — documented in `pipe-config.md`.
+- `apps/loseit-agent/pipe/selftest.py` — local Python self-test of the Pipe against the live agent service (no Open WebUI in the loop).
+- No env var changes on Open WebUI's deployment: the Pipe stores `auth_token` in its valves, which persist in Open WebUI's SQLite.
+- **Verify:** Pipe selftest passes against the deployed echo service. Then in the chat UI, pick model "loseit-agent", type "hi", see status `→ echo(hi)`, then streamed "echo: hi".
 
 ### S4 — Replace echo with real pydantic-ai loseit-search agent
 - Install `lose-it` + `pydantic-ai` in the agent image.
 - `server.py`: `POST /run` calls a real pydantic-ai `Agent(model=qwen3:8b)` with a single `search` tool wrapping `loseit search`.
-- **Loseit token via Kitaru secrets:** insert the token with `kitaru secret create loseit-token --token=$(cat ~/.config/loseit/token)`; the agent's startup code calls `kitaru.client.KitaruClient().secrets.get("loseit-token")` and materializes it at `/home/agent/.config/loseit/token` (chmod 600). No K8s Secret for this token.
-- **Verify:** Chat "find guacamole" → Pipe shows `→ search(guacamole)` status, then a streamed list of 3-5 top results.
+- **Loseit token via Kitaru secrets** (landed in commit `3d53859`, post-S4): operator runs `apps/kitaru/ops/bootstrap.sh` once to insert the `loseit-token` secret into Kitaru's store with four assignments (`token`, `user_id`, `user_name`, `hours_from_gmt`). The agent's startup hook (`_fetch_loseit_creds_from_kitaru`) calls Kitaru's `/api/v1/secrets/{id}?hydrate=true` using the `kitaru-api-key` K8s Secret (created by `bootstrap.sh`), writes the JWT to `~/.config/loseit/token`, and exports the identity fields as `LOSEIT_*` env vars. No K8s Secret holds the loseit JWT itself.
+- **Verify:** Chat "find guacamole" → Pipe shows `→ search(guacamole)` status, then a streamed list of 5 top results with food_ids. Run `apps/loseit-agent/pipe/selftest.py` for a programmatic version of the same check.
 
 ### S5 — KitaruAgent wrapper + live status events
 - Add `KitaruAgent(...)` wrapping the inner Agent; configure `event_stream_handler` to forward Kitaru events to the SSE queue.
