@@ -5,7 +5,7 @@ ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml /app/pyproject.toml
@@ -24,9 +24,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
-RUN groupadd --system --gid 10001 agent \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 agent \
  && useradd --system --uid 10001 --gid agent --home /home/agent --create-home agent
 
 COPY --from=builder /opt/venv /opt/venv
@@ -34,4 +33,4 @@ COPY --from=builder /opt/venv /opt/venv
 USER agent
 ENV HOME=/home/agent
 EXPOSE 8000
-CMD ["loseit-agent"]
+CMD ["loseit-openwebui-agent"]

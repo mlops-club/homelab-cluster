@@ -24,7 +24,7 @@ spec:
         - name: harbor-creds
       containers:
         - name: agent
-          image: cr.priv.mlops-club.org/loseit-agent/agent:${IMAGE_TAG}
+          image: cr.priv.mlops-club.org/loseit-openwebui-agent/agent:${IMAGE_TAG}
           imagePullPolicy: Always
           ports:
             - name: http
@@ -45,57 +45,26 @@ spec:
                 secretKeyRef:
                   name: kitaru-api-key
                   key: api_key
-            - name: KITARU_AUTH_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: kitaru-api-key
-                  key: api_key
             - name: KITARU_PROJECT
               value: "02702c00-0cc6-4551-8964-64fde34ed99b"
-            - name: ZENML_ACTIVE_STACK_ID
-              value: "9f2835ba-5093-48e0-8e04-baa3061f238d"
-            - name: OLLAMA_BASE_URL
-              value: "http://ollama.ollama.svc.cluster.local:11434/v1"
-            - name: OLLAMA_MODEL
-              value: "qwen3:8b"
-          volumeMounts:
-            - name: home
-              mountPath: /home/agent
-            - name: tmp
-              mountPath: /tmp
+            - name: KITARU_FLOW_NAME
+              value: "loseit_agent_flow"
           readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
+            httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 2
             periodSeconds: 5
-            failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
+            httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 10
             periodSeconds: 15
-            failureThreshold: 3
           resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 1000m
-              memory: 1Gi
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 10001
-            capabilities:
-              drop: ["ALL"]
-      volumes:
-        - name: home
-          emptyDir: {}
-        - name: tmp
-          emptyDir: {}
+            capabilities: { drop: ["ALL"] }
 ---
 apiVersion: v1
 kind: Service
@@ -105,9 +74,7 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - name: http
-      port: 80
-      targetPort: 8000
+    - { name: http, port: 80, targetPort: 8000 }
   selector:
     app: loseit-agent
 ---
