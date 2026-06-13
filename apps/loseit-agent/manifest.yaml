@@ -1,15 +1,25 @@
-# loseit-agent — slice S2 (echo FastAPI behind private Tailscale ingress).
+# loseit-agent — slice S4 (real pydantic-ai agent w/ a single `search` tool).
 #
 # Topology (see ARCHITECTURE.md for the full picture):
 #   user → traefik-private (Tailscale only) → Ingress → Service → Deployment(server.py)
+#   Deployment → Ollama (qwen3:8b) + subprocess(loseit CLI) → loseit.com
 #
 # Secrets:
 #   - harbor-creds: docker-registry pull secret, created by deploy.sh.
 #   - agent-token: opaque secret with key `token` (32 random hex bytes),
 #                  created by deploy.sh on first deploy and NOT rotated on
-#                  subsequent deploys (would invalidate Pipe config in S3).
+#                  subsequent deploys (would invalidate Pipe config from S3).
 #                  Mounted as the AGENT_TOKEN_EXPECTED env var so the server
 #                  rejects requests without a matching bearer.
+#   - loseit-token: opaque secret with key `token` (the operator's Lose It! JWT).
+#                  Created out-of-band by the orchestrator (in S4 spec this
+#                  later moves to Kitaru's secret store; for now it's a plain
+#                  K8s Secret). Mounted as $LOSEIT_TOKEN; server.py materializes
+#                  it to /home/agent/.config/loseit/token at startup.
+#
+# Volumes:
+#   - /home/agent is an emptyDir so the agent can chmod-write its loseit
+#     token file even with readOnlyRootFilesystem: true.
 #
 # The Namespace is intentionally apply-able via this manifest too so that the
 # whole app is described in one place. deploy.sh still pre-creates the ns
@@ -52,6 +62,43 @@ spec:
                 secretKeyRef:
                   name: agent-token
                   key: token
+            - name: LOSEIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: loseit-token
+                  key: token
+            # The lose-it CLI also needs user identity to call the API. These
+            # come from the same Secret (orchestrator-populated). They're
+            # optional here so the deployment keeps rolling out even if the
+            # orchestrator hasn't yet added them — the agent still boots and
+            # the startup code logs a clear warning.
+            - name: LOSEIT_USER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: loseit-token
+                  key: user_id
+                  optional: true
+            - name: LOSEIT_USER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: loseit-token
+                  key: user_name
+                  optional: true
+            - name: LOSEIT_HOURS_FROM_GMT
+              valueFrom:
+                secretKeyRef:
+                  name: loseit-token
+                  key: hours_from_gmt
+                  optional: true
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama.ollama.svc.cluster.local:11434/v1"
+            - name: OLLAMA_MODEL
+              value: "qwen3:8b"
+          volumeMounts:
+            - name: home
+              mountPath: /home/agent
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /healthz
@@ -68,11 +115,11 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 100m
+              memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 1000m
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -80,6 +127,11 @@ spec:
             runAsUser: 10001
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

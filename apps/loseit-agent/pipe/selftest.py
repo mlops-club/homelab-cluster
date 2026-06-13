@@ -40,7 +40,7 @@ async def main() -> int:
     async def emit(event: dict) -> None:
         print(json.dumps(event))
 
-    body = {"messages": [{"role": "user", "content": "hello self-test"}]}
+    body = {"messages": [{"role": "user", "content": "find guacamole"}]}
     metadata: dict = {}
 
     final = await pipe.pipe(body, emit, metadata)
@@ -50,8 +50,11 @@ async def main() -> int:
     print("=" * 40)
     print("METADATA:", metadata)
 
-    assert "hello self-test" in final, f"expected echo, got: {final!r}"
-    print("✅ selftest passed")
+    # S4 expectation: the agent calls `search("guacamole")` exactly once and
+    # summarizes the top results. We don't pin the exact text (it's an LLM)
+    # but the word "guacamole" should land in the final reply.
+    assert "guacamole" in final.lower(), f"expected guacamole result, got: {final!r}"
+    print("selftest passed")
     return 0
 
 
