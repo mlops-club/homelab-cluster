@@ -589,16 +589,42 @@ def _with_live_status(name: str, args_preview_fn: Callable[..., str]):
                 except RuntimeError:
                     pass
             t0 = time.monotonic()
+            result: Any = None
+            error_repr: str | None = None
             try:
-                return fn(*args, **kwargs)
+                result = fn(*args, **kwargs)
+                return result
+            except Exception as exc:  # noqa: BLE001
+                error_repr = f"{type(exc).__name__}: {exc}"
+                raise
             finally:
                 if state is not None:
                     elapsed = time.monotonic() - t0
+                    # Build a compact result preview the Pipe can render inside
+                    # a markdown <details> block. We cap at 4 KB so the SSE
+                    # event doesn't balloon for tools like `search` that may
+                    # return 30 candidates with verbose JSON.
+                    if error_repr is not None:
+                        result_preview = error_repr
+                    elif isinstance(result, str):
+                        result_preview = result
+                    else:
+                        try:
+                            result_preview = json.dumps(result, default=str)
+                        except Exception:  # noqa: BLE001
+                            result_preview = repr(result)
+                    truncated = len(result_preview) > 4000
+                    if truncated:
+                        result_preview = result_preview[:4000]
                     done_frame = _sse({
                         "kind": "tool_done",
                         "name": name,
+                        "args_preview": preview[:80],
                         "call_id": call_id,
                         "elapsed_s": round(elapsed, 2),
+                        "result_preview": result_preview,
+                        "result_truncated": truncated,
+                        "is_error": error_repr is not None,
                     })
                     try:
                         state.loop.call_soon_threadsafe(state.queue.put_nowait, done_frame)

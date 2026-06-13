@@ -78,19 +78,36 @@ class Pipe:
             async for evt in self._stream(url, payload):
                 kind = evt.get("kind")
                 if kind == "tool":
+                    # We render the tool call as ONE <details> block at
+                    # tool_done time; nothing to emit here.
+                    pass
+                elif kind == "tool_done":
                     name = evt.get("name", "?")
                     args = evt.get("args_preview", "")
-                    line = f"\n🔧 `{name}({args})` "
-                    accumulated += line
-                    await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": line}}
-                    )
-                elif kind == "tool_done":
                     elapsed = evt.get("elapsed_s")
-                    suffix = f"✓ ({elapsed:.1f}s)\n" if isinstance(elapsed, (int, float)) else "✓\n"
-                    accumulated += suffix
+                    elapsed_s = f"{elapsed:.1f}s" if isinstance(elapsed, (int, float)) else "?"
+                    is_error = evt.get("is_error")
+                    marker = "❌" if is_error else "✓"
+                    result_preview = evt.get("result_preview", "") or ""
+                    truncated = evt.get("result_truncated")
+
+                    # If the result smells like JSON, fence it as json so OW
+                    # syntax-highlights it. Otherwise leave it as plain text.
+                    stripped = result_preview.strip()
+                    fence = "json" if stripped.startswith(("{", "[")) else ""
+                    body_lines = ["", f"```{fence}", result_preview, "```"]
+                    if truncated:
+                        body_lines.append("\n_(truncated to 4 KB; see Kitaru run inspector for full output)_")
+
+                    block = (
+                        f"\n<details>\n"
+                        f"<summary>🔧 <code>{name}({args})</code> {marker} ({elapsed_s})</summary>\n"
+                        + "\n".join(body_lines)
+                        + "\n\n</details>\n"
+                    )
+                    accumulated += block
                     await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": suffix}}
+                        {"type": "chat:message:delta", "data": {"content": block}}
                     )
                 elif kind == "wait":
                     # Server already recorded the pending exec_id keyed by
