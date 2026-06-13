@@ -1,5 +1,5 @@
-# Namespace, model-storage PVs, and an inference-only NetworkPolicy for Ollama.
-# The Ollama Deployment itself is created by the otwld/ollama Helm chart — see deploy.sh.
+# Namespace, model-storage PVs, and a private Ingress for Ollama.
+# The Ollama Deployment + Service itself is created by the otwld/ollama Helm chart — see deploy.sh.
 #
 # Storage layout on cluster-node-4 (the GPU node):
 #   /srv/models/                  ← shared root for any model weights this homelab serves
@@ -76,3 +76,37 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values: [cluster-node-4]
+
+---
+# Private Tailscale-only Ingress in front of the chart's ClusterIP Service.
+# Mirrors the open-webui Ingress pattern: traefik-private class, websecure entrypoint,
+# wildcard TLS from the cluster-wide reflector-replicated priv-wildcard-tls secret.
+# Hostname is registered automatically by external-dns watching this ingress class.
+# Reachable only from devices on the Tailnet — no public exposure.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ollama
+  namespace: ollama
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+    - hosts:
+        - ollama.priv.mlops-club.org
+      secretName: priv-wildcard-tls
+  rules:
+    - host: ollama.priv.mlops-club.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Service name follows the otwld/ollama chart convention:
+                # <release-name>. The release is installed as "ollama".
+                name: ollama
+                port:
+                  number: 11434

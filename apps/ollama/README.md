@@ -1,6 +1,8 @@
 # Ollama
 
-GPU-backed LLM inference service. Deployed in the `ollama` namespace, bound to `cluster-node-4` (the only GPU node), reachable in-cluster at `http://ollama.ollama.svc.cluster.local:11434`. Not exposed via ingress — only other workloads in the cluster talk to it.
+GPU-backed LLM inference service. Deployed in the `ollama` namespace, bound to `cluster-node-4` (the only GPU node), reachable in-cluster at `http://ollama.ollama.svc.cluster.local:11434` and from any Tailnet device at `https://ollama.priv.mlops-club.org` (private Ingress via `traefik-private`, wildcard TLS from the reflector-replicated `priv-wildcard-tls` secret — no public exposure). The OpenAI-compatible API lives under `/v1` (e.g. `https://ollama.priv.mlops-club.org/v1/models`).
+
+The Ollama Deployment + Service are Helm-managed by `deploy.sh` (chart `otwld/ollama`); the repo only tracks the Namespace, model-storage PVs/PVCs, and the Ingress in `manifest.yaml`. Apply infra changes (including the Ingress) with `kubectl apply -f apps/ollama/manifest.yaml`.
 
 ## Storage layout
 
