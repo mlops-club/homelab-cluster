@@ -170,83 +170,99 @@ async def _run_or_resume(chat_id: str, prompt: str) -> AsyncIterator[str]:
 async def _stream_execution(
     client: Any, exec_id: str, chat: ChatState
 ) -> AsyncIterator[str]:
-    """Bridge Kitaru's SSE execution events into our chat wire format.
+    """Poll the Kitaru execution and emit tool/final/wait/error frames.
 
-    `client.executions.events(exec_id)` returns a sync iterator of
-    ExecutionEvent objects backed by a `text/event-stream` REST endpoint
-    with auto-reconnect (see kitaru `_client/_events.py`). We pull each
-    event on a thread and translate it into our `tool` / `tool_done` /
-    `wait` / `final` / `error` schema.
+    Kitaru's `client.executions.events()` requires server-side streaming
+    which is disabled on the homelab Kitaru deployment, so we poll
+    `executions.get()` and `executions.list_checkpoints()` on a tick.
+    Each new checkpoint becomes a `tool` then `tool_done` frame.
     """
-    loop = asyncio.get_running_loop()
-
-    def _open_iter():
-        return client.executions.events(exec_id, reconnect=True)
-
-    try:
-        it = await loop.run_in_executor(None, _open_iter)
-    except Exception as exc:
-        yield _sse({"kind": "error", "message": f"open stream failed: {exc}"})
-        chat.pending_exec_id = None
-        chat.pending_wait_name = None
-        return
-
-    def _next():
-        return next(it, None)
+    seen_checkpoints: set[str] = set()
+    started_checkpoints: dict[str, float] = {}
 
     while True:
         try:
-            event = await loop.run_in_executor(None, _next)
+            execution = await asyncio.to_thread(client.executions.get, exec_id)
         except Exception as exc:
-            yield _sse({"kind": "error", "message": f"stream read failed: {exc}"})
+            yield _sse({"kind": "error", "message": f"poll failed: {exc}"})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
 
-        if event is None:
-            break
+        try:
+            checkpoints = await asyncio.to_thread(execution.list_checkpoints)
+        except Exception:
+            checkpoints = []
 
-        kind = getattr(event, "kind", "")
-        payload = getattr(event, "payload", {}) or {}
+        for cp in checkpoints:
+            cp_name = getattr(cp, "name", "?")
+            cp_id = getattr(cp, "id", cp_name)
+            cp_status = getattr(cp, "status", "")
+            key = f"{cp_id}:{cp_name}"
+            if key in seen_checkpoints:
+                continue
+            if not cp_name.endswith("_tool"):
+                continue
+            tool_name = cp_name[:-5]
+            if cp_status in ("running", "started"):
+                started_checkpoints[key] = time.monotonic()
+                yield _sse({
+                    "kind": "tool",
+                    "name": tool_name,
+                    "args_preview": "",
+                    "call_id": str(cp_id),
+                })
+            elif cp_status in ("completed", "succeeded", "finished", "failed"):
+                seen_checkpoints.add(key)
+                elapsed = round(time.monotonic() - started_checkpoints.pop(key, time.monotonic()), 2)
+                yield _sse({
+                    "kind": "tool_done",
+                    "name": tool_name,
+                    "args_preview": "",
+                    "call_id": str(cp_id),
+                    "elapsed_s": elapsed,
+                    "result_preview": "",
+                    "result_truncated": False,
+                    "is_error": cp_status == "failed",
+                })
 
-        if kind in ("tool_call", "model_call"):
-            yield _sse({
-                "kind": "tool",
-                "name": payload.get("name", kind),
-                "args_preview": str(payload.get("args", ""))[:80],
-                "call_id": payload.get("call_id", ""),
-            })
-        elif kind == "tool_done":
-            yield _sse({
-                "kind": "tool_done",
-                "name": payload.get("name", "?"),
-                "args_preview": str(payload.get("args", ""))[:80],
-                "call_id": payload.get("call_id", ""),
-                "elapsed_s": payload.get("elapsed_s"),
-                "result_preview": str(payload.get("result", ""))[:4000],
-                "result_truncated": len(str(payload.get("result", ""))) > 4000,
-            })
-        elif kind in ("wait_pending", "execution_paused"):
-            wait_name = payload.get("wait_name") or payload.get("name")
+        status = getattr(execution, "status", "")
+        pending_wait = getattr(execution, "pending_wait", None)
+
+        if pending_wait:
+            wait_name = getattr(pending_wait, "name", None) or getattr(pending_wait, "wait_name", None)
             chat.pending_wait_name = wait_name
             yield _sse({
                 "kind": "wait",
                 "exec_id": exec_id,
                 "wait_name": wait_name,
-                "prompt": payload.get("question", "Need clarification."),
-                "options": payload.get("options", []),
+                "prompt": getattr(pending_wait, "question", "Need clarification."),
+                "options": getattr(pending_wait, "options", []) or [],
             })
             return
-        elif kind in ("execution_completed", "execution_finished"):
-            yield _sse({"kind": "final", "text": str(payload.get("output", ""))})
+
+        if status in ("completed", "succeeded", "finished"):
+            output = getattr(execution, "output", None)
+            artifacts = await asyncio.to_thread(execution.list_artifacts)
+            if not output and artifacts:
+                for art in artifacts:
+                    val = await asyncio.to_thread(art.load) if hasattr(art, "load") else None
+                    if isinstance(val, str):
+                        output = val
+                        break
+            yield _sse({"kind": "final", "text": str(output or "(no output)")})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
-        elif kind in ("execution_failed", "error"):
-            yield _sse({"kind": "error", "message": str(payload.get("message", "failed"))})
+
+        if status in ("failed", "errored", "cancelled"):
+            reason = getattr(execution, "status_reason", "") or "(no reason)"
+            yield _sse({"kind": "error", "message": f"execution {status}: {reason}"})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
+
+        await asyncio.sleep(1.0)
 
 
 def main() -> None:
