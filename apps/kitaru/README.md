@@ -66,3 +66,8 @@ kitaru login https://kitaru.priv.mlops-club.org
 | `502 Bad Gateway` from Traefik | Pod isn't ready yet, or the Service targets the wrong port. `kubectl -n kitaru describe svc kitaru-server` should show `targetPort: 8080`. |
 | Pod restarts with SQLite migration errors | Delete the PVC and re-deploy — only safe on a fresh install: `kubectl -n kitaru delete pvc kitaru-server-config`. |
 | `helm upgrade` fails pulling the chart | The chart lives in an OCI registry (`public.ecr.aws/zenml/kitaru`); helm 3.8+ required and the host needs egress to ECR. |
+| UI shows "Failed to load logs — Files in a local artifact store cannot be accessed from the server." on an execution detail page | The execution ran on the old `default` stack with the local artifact store. New executions on the `default-s3` stack (MinIO-backed) load fine. See [`ARTIFACTS.md`](ARTIFACTS.md) for the storage model and migration runbook. |
+
+## Artifact storage
+
+Kitaru artifacts and per-step runtime logs live in **MinIO** (`apps/minio/`), backed by NFS on the homelab NAS. The active stack is `default-s3`, which pairs the chart's local orchestrator/deployer with an `s3`-flavor artifact store named `minio` pointing at `s3://kitaru-artifacts` via `http://minio.minio.svc.cluster.local:9000`. See [`ARTIFACTS.md`](ARTIFACTS.md) for the full operator runbook (bootstrap, rotate, revert).
