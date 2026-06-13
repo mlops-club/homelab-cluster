@@ -75,6 +75,12 @@ spec:
                 secretKeyRef:
                   name: kitaru-api-key
                   key: api_key
+            # The Kitaru SDK refuses to call the remote server without an
+            # active project context. The chart provisions a `default`
+            # project on first boot (resolved once via GET /api/v1/projects).
+            # MUST be a UUID, not a name — the SDK errors on non-UUID values.
+            - name: KITARU_PROJECT
+              value: "02702c00-0cc6-4551-8964-64fde34ed99b"
             - name: OLLAMA_BASE_URL
               value: "http://ollama.ollama.svc.cluster.local:11434/v1"
             - name: OLLAMA_MODEL
