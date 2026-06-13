@@ -34,7 +34,7 @@ User → chat.priv.mlops-club.org (Open WebUI)
                     └── HTTPS SSE
                           └── loseit-agent.priv.mlops-club.org (FastAPI)
                                   ├── HTTPS → ollama.ollama.svc.cluster.local:11434
-                                  ├── HTTPS → kitaru.kitaru.svc.cluster.local:8080
+                                  ├── HTTPS → kitaru-server.kitaru.svc.cluster.local:80
                                   └── subprocess `loseit` → HTTPS → loseit.com
 
 User → kitaru.priv.mlops-club.org → Kitaru UI (browse / compare runs)
@@ -45,7 +45,7 @@ All same-namespace + cross-namespace traffic uses Kubernetes DNS. Edge traffic f
 ### Auth
 
 - **Open WebUI ↔ Pipe**: in-process, no auth boundary.
-- **Pipe ↔ agent**: shared bearer token in a Kubernetes Secret, set as `AGENT_TOKEN` env var inside Open WebUI pod (via `extraEnvVars`) and as `AGENT_TOKEN_EXPECTED` env var inside the agent pod. Pipe sends `Authorization: Bearer <AGENT_TOKEN>`. Defense in depth — Tailscale already gates external reach, this guards against accidental in-cluster cross-namespace calls.
+- **Pipe ↔ agent**: shared bearer token. The token is generated once at S2 deploy and stored in two places: (1) the `agent-token` K8s Secret in the `loseit-agent` namespace, which the agent reads via the `AGENT_TOKEN_EXPECTED` env var, and (2) the Pipe's `auth_token` valve (configured per Pipe instance in the Open WebUI admin UI). The Pipe sends `Authorization: Bearer <auth_token>`. No env var needed on the Open WebUI pod itself — Pipe valves persist in Open WebUI's SQLite. Defense in depth — Tailscale already gates external reach, this guards against accidental in-cluster cross-namespace calls.
 - **Agent ↔ Ollama**: none (Ollama ClusterIP is already in-cluster only; ingress also has no auth, lives on Tailscale).
 - **Agent ↔ Kitaru**: API key stored in the `kitaru` namespace Secret, mounted into agent pod. (Kitaru's local mode uses no auth, but the server image likely requires a token — confirmed in S1.)
 - **Agent ↔ Lose It!**: the user's existing JWT lives in **Kitaru's secrets store** (which is just rows in the Kitaru/ZenML metadata DB), inserted via `kitaru secret create loseit-token --token=<value>`. The agent fetches it at startup via the Kitaru client (`client.secrets.get("loseit-token")["token"]`) and writes it to the in-pod path that the `loseit` CLI expects (`/home/agent/.config/loseit/token`). No Kubernetes Secret for this token. Rationale: keeps all agent-relevant credentials in one centralized store (the same store that holds API keys for OpenAI/Anthropic/etc. when we add them) instead of split across `kubectl` and Kitaru.
@@ -116,7 +116,7 @@ Each slice is end-to-end runnable. After each slice the system is at a strictly 
 
 ### S5 — KitaruAgent wrapper + live status events
 - Add `KitaruAgent(...)` wrapping the inner Agent; configure `event_stream_handler` to forward Kitaru events to the SSE queue.
-- Configure Kitaru client to point at `https://kitaru.kitaru.svc.cluster.local:8080` with API key from Secret.
+- Configure Kitaru client to point at `https://kitaru-server.kitaru.svc.cluster.local:80` with API key from Secret.
 - **Verify:**
   - Chat shows `→ search(...)` status as before, plus `→ model_call (turn 1)` etc.
   - `kitaru.priv.mlops-club.org` shows the run in the executions list; opening it shows the checkpoint tree with prompts and responses.
