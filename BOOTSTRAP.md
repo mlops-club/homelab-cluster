@@ -21,6 +21,7 @@ Required variables:
 - `ACME_EMAIL` - Email address for Let's Encrypt certificate notifications
 - `DOMAIN` - Your domain name (e.g., `mlops-club.org`)
 - `CLOUDFLARE_DOMAIN` - Same as `DOMAIN` if not explicitly set
+- `BETTERSTACK_SANDBOX_INGEST_TOKEN` - Source token for the `eric-sandbox` Better Stack Telemetry source, used by the OpenTelemetry Collector to ship metrics
 
 ### 2. Tailscale Setup
 
@@ -77,4 +78,3 @@ For detailed information about what the script does, see the implementation in [
 ## Troubleshooting
 
 See [README.md](README.md) for common issues and troubleshooting steps.
-

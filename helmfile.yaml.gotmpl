@@ -1,14 +1,14 @@
 # helmfile.yaml.gotmpl
 # Purpose: Declarative specification of all Helm releases in the homelab cluster
 # Scope: All infrastructure Helm charts — storage, networking, TLS, DNS, ingress, and container registry
-# Overview: Manages 10 Helm releases with dependency ordering, CRD lifecycle hooks,
+# Overview: Manages 11 Helm releases with dependency ordering, CRD lifecycle hooks,
 #     and secret injection from environment variables. Uses Go templating (.gotmpl extension
 #     required by helmfile v1) with requiredEnv for secrets and env/default for optional config.
 #     Presync hooks handle CRDs and secrets; postsync hooks handle Certificates, ClusterIssuers,
 #     StorageClasses, and Ingress resources that exist outside Helm's release tracking.
 #     Chart versions are pinned to prevent accidental upgrades.
 # Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, .env with credentials
-# Exports: 10 Helm releases across 5 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator)
+# Exports: 11 Helm releases across 7 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator, opentelemetry-operator-system, opentelemetry)
 # Environment: Production homelab cluster (k3s on 3 Intel NUCs)
 # Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml
 # Implementation: helmfile v1 with Go templating, presync/postsync hooks for non-Helm resources
@@ -44,6 +44,8 @@ repositories:
     url: https://helm.goharbor.io
   - name: nvidia
     url: https://helm.ngc.nvidia.com/nvidia
+  - name: open-telemetry
+    url: https://open-telemetry.github.io/opentelemetry-helm-charts
 
 ---
 
@@ -277,6 +279,55 @@ releases:
             kubectl apply -f network/public/traefik/mlops-wildcard-certificate.yaml
             kubectl wait --for=condition=Ready certificate/mlops-wildcard -n traefik-public --timeout=300s || echo "Certificate may take a moment to become ready"
             kubectl apply -f network/public/traefik/traefik-ingress.yaml
+
+  # ==========================================================================
+  # OBSERVABILITY (OpenTelemetry Operator + Collector → Better Stack)
+  # ==========================================================================
+
+  # OpenTelemetry Operator — manages OpenTelemetryCollector custom resources.
+  # The Collector defined in otel-operator/collector.yaml scrapes
+  # nvidia-dcgm-exporter and ships metrics with k8s.* attributes to the
+  # eric-sandbox source in the Sandbox team on Better Stack.
+  #
+  # Why this ordering:
+  #   - cert-manager must be deployed first (admission webhook TLS).
+  #   - gpu-operator must be deployed first (provides dcgm-exporter Service).
+  - name: opentelemetry-operator
+    namespace: opentelemetry-operator-system
+    createNamespace: true
+    chart: open-telemetry/opentelemetry-operator
+    version: 0.115.0
+    wait: true
+    timeout: 300
+    values:
+      - otel-operator/values.yaml
+    needs:
+      - traefik-private/cert-manager
+      - gpu-operator/gpu-operator
+    hooks:
+      # Create the opentelemetry namespace and the Better Stack ingest-token
+      # Secret the Collector reads via envFrom. Idempotent.
+      - events: ["presync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl create namespace opentelemetry --dry-run=client -o yaml | kubectl apply -f -
+            kubectl create secret generic betterstack-sandbox-ingest-token \
+              --from-literal=BETTERSTACK_SOURCE_TOKEN="${BETTERSTACK_SANDBOX_INGEST_TOKEN}" \
+              --namespace opentelemetry \
+              --dry-run=client -o yaml | kubectl apply -f -
+      # Apply the Collector CR + RBAC after the Operator's CRDs and webhook
+      # are running. Operator's `wait: true` above guarantees its pod is
+      # Ready before this hook fires.
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl apply -f otel-operator/collector.yaml
 
   # ==========================================================================
   # IMAGE REGISTRY
