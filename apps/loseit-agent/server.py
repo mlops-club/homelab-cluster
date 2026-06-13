@@ -1,13 +1,21 @@
-"""Slice S5: FastAPI service for a Kitaru-wrapped pydantic-ai agent.
+"""Slice S6: FastAPI service for a Kitaru-wrapped 5-tool pydantic-ai agent.
 
-The pydantic-ai Agent (single `search` tool, qwen3:8b on homelab Ollama) is
-now wrapped in `KitaruAgent`, so every `POST /run` becomes a durable Kitaru
-execution with per-call checkpoints visible in the Kitaru UI / API. The SSE
-wire format on `POST /run` is preserved verbatim from S2/S4 — the Pipe and
-selftest already speak it. Each pydantic-ai stream event is translated into
-one of the schemas defined in apps/loseit-agent/SPEC.md:
+This slice expands the S4/S5 single-`search` agent into the full 5-tool agent
+ported from `tools/agent-sandbox/agent.py` (the v7 reference that produced the
+successful 4-food log run). Tools:
 
-    data: {"kind":"tool",       "name":"search", "args_preview":"<query>", "call_id":"..."}
+    search          — query the Lose It! food DB
+    describe_food   — inspect 1+ food_ids (units, conversions, nutrients)
+    log_food        — write an entry to the diary
+    diary           — read the diary for a date
+    whoami          — print resolved loseit identity
+
+The pydantic-ai Agent is wrapped in `KitaruAgent`, so every `POST /run` becomes
+a durable Kitaru execution with per-call checkpoints visible in the Kitaru UI.
+The SSE wire format on `POST /run` is preserved verbatim from S4/S5 — the Pipe
+and selftest already speak it:
+
+    data: {"kind":"tool",       "name":"<tool>", "args_preview":"<arg>", "call_id":"..."}
     data: {"kind":"tool_done",  "call_id":"<same id>"}
     data: {"kind":"model_call", "turn": N}
     data: {"kind":"final",      "text":"..."}
@@ -32,7 +40,7 @@ runs and directly by us for secret fetch) reads `KITARU_AUTH_TOKEN` and
 required for service-account API keys. We bridge `KITARU_API_KEY` →
 `KITARU_AUTH_TOKEN` at import time so the manifest doesn't need to set both.
 
-Slices S6-S7 add: 4 more tools (S6), wait/resume (S7).
+Slice S7 adds: kitaru.wait()-based clarification + /resume endpoint.
 """
 
 from __future__ import annotations
@@ -42,8 +50,9 @@ import json
 import logging
 import os
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -162,6 +171,32 @@ def _fetch_loseit_creds_from_kitaru() -> None:
             logger.info("loseit env: LOSEIT_%s set", key.upper())
 
 
+# ------------------------------------------------------------ user-today ----
+#
+# Lose It! stores log entries by UTC date but the CLI's `diary` defaults to
+# user-local date. Forcing both sides to the SAME local date by passing
+# `on_date` everywhere avoids the "logged today, missing from diary" mismatch.
+# The reference sandbox reads the offset from ~/.config/loseit/config.yaml; in
+# our service the offset is shipped via the Kitaru secret (parsed into
+# LOSEIT_HOURS_FROM_GMT). Since the secret fetch is a startup hook that runs
+# AFTER module import (we can't reorder it — the FastAPI app + KitaruAgent
+# need to construct before lifespan starts), the env var may not be set yet
+# here. Fall back to "-6" (US Mountain) — that matches the operator's locale
+# and any future GMT correction can be picked up at the next pod restart.
+
+def _user_today() -> str:
+    raw = os.environ.get("LOSEIT_HOURS_FROM_GMT", "-6")
+    try:
+        offset_hours = int(raw)
+    except ValueError:
+        offset_hours = -6
+    local_now = datetime.now(timezone.utc) + timedelta(hours=offset_hours)
+    return local_now.date().isoformat()
+
+
+USER_TODAY = _user_today()
+
+
 # ------------------------------------------------------------------ agent ----
 
 _model = OpenAIChatModel(
@@ -169,50 +204,196 @@ _model = OpenAIChatModel(
     provider=OpenAIProvider(base_url=OLLAMA_BASE_URL, api_key="ollama"),
 )
 
-SYSTEM_PROMPT = (
-    "You help the user search the Lose It! food database. When given a query, "
-    "call `search` ONCE and return a concise summary of the top 3-5 results "
-    "(name, brand if any, and the food_id). Don't try to log anything yet."
-)
+# Ported verbatim from tools/agent-sandbox/agent.py (the v7 reference that
+# produced the successful 4-food log run). The only deltas vs the sandbox:
+#   - USER_TODAY is computed from the LOSEIT_HOURS_FROM_GMT env var (which
+#     the Kitaru-fetched loseit secret materializes) instead of from a
+#     config.yaml file on disk — there's no config.yaml inside the container.
+#   - The "Be concise. Don't narrate." footer is preserved; the model needs
+#     this even more in chat context because verbose reasoning eats into
+#     Pipe-side responsiveness.
+SYSTEM_PROMPT = f"""You log meals to Lose It! by driving the `loseit` CLI via tools.
+
+Today (user's local date) is {USER_TODAY}. Always pass `on_date="{USER_TODAY}"` to `log_food` and `diary`.
+
+For EACH food the user mentions:
+  1. `search` with the BARE food noun ONLY (e.g. "guacamole", "asparagus") — DO NOT include
+     user modifiers like "homemade", "fresh", "cooked" in the query. The DB is full of brand
+     entries that match those words and they're often the WORST entries for gram-based logging.
+  2. `describe_food` on at least the TOP 3 food_ids from that search (one batched call).
+     Mandatory — the #1 result is often a brand entry that doesn't support grams; #2-#3 are
+     usually plain entries that DO.
+  3. Pick the candidate that supports the user's stated unit:
+     - User said grams → entry needs `primary_serving.unit == "grams"` OR
+       `cross_class_conversion.per_serving_g != null` (a number, NOT null).
+     - If none of those 3 support grams, RE-SEARCH with a different bare noun ("avocado dip",
+       "avocado mash") and describe the top 3 again. Up to 3 rounds.
+     - Sanity-check calories: lentils ~115/100g, asparagus ~20/100g, potatoes ~70/100g, guacamole ~150/100g.
+  4. `log_food` (no dry_run) with the chosen food_id, the user's AMOUNT and UNIT EXACTLY as the user said it
+     (do not convert), meal=snacks unless stated, on_date.
+  5. After all foods, `diary(on_date="{USER_TODAY}")` and confirm each appears with sane calories.
+
+NEVER convert "100g" to tablespoons, teaspoons, or fluid ounces. NEVER compute serving counts > 30
+of any spoon unit — that's always a math error. If you can't find an entry that supports the user's
+unit, log the food in its native unit at `servings=1.0` and note the limitation in your summary.
+
+Meal rules: explicit meal wins; time-of-day cue infers; else default to `snacks` — NEVER ask.
+
+Units: "Xg" → serving_amount=X, serving_unit="g". "N cup" → serving_amount=N, serving_unit="cup". Bare "oz" is rejected.
+
+Splitting: "255g evenly split between A, B, C" → log 255/3 ≈ 85g of each.
+
+Be concise. Don't narrate. When you're done, return one line summarizing what you logged."""
 
 # `name=` is REQUIRED by KitaruAgent (it's how runs are grouped in the UI).
 # Setting it on the inner Agent also gives KitaruAgent a sensible default if
 # we forget to pass `name=` again at the wrapping layer.
 _inner_agent: Agent[None, str] = Agent(
     _model,
-    name="loseit-search-agent",
+    name="loseit-agent",
     system_prompt=SYSTEM_PROMPT,
     retries=2,
 )
 
 
-def _run_loseit_search(query: str) -> str:
-    """Subprocess `loseit -o json search <query>` and return stdout.
+def _run_loseit(args: list[str], *, json_output: bool = True) -> str:
+    """Subprocess `loseit [-o json] <args...>` and return stdout.
 
     Errors are encoded as a JSON object so the model can surface them in the
-    final response instead of the agent loop blowing up.
+    final response instead of the agent loop blowing up. Critically, when
+    log_food fails with "doesn't have a tablespoon/teaspoon" or
+    "unit_not_supported", we rewrite the error into an imperative `guidance`
+    string. Without that hint, qwen3:8b's natural reaction is to "fix" the
+    error by converting the user's unit (e.g. "100g" → "20 tsp"), which lands
+    obviously-wrong calorie counts in the diary. The guidance flips it into
+    a re-search instead.
     """
-    cmd = [LOSEIT_BIN, "-o", "json", "search", query]
+    cmd = [LOSEIT_BIN]
+    if json_output:
+        cmd += ["-o", "json"]
+    cmd += args
     logger.info("loseit-cmd: %s", " ".join(cmd))
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired:
-        return json.dumps({"error": "loseit_timeout", "query": query})
+        return json.dumps({"error": "loseit_timeout", "args": args})
     if proc.returncode != 0:
-        return json.dumps(
-            {
-                "error": "loseit_cli_failed",
-                "exit_code": proc.returncode,
-                "stderr": proc.stderr.strip()[:2000],
-            }
-        )
+        stderr = proc.stderr.strip()
+        err: dict[str, object] = {
+            "error": "loseit_cli_failed",
+            "exit_code": proc.returncode,
+            "stderr": stderr[:2000],
+        }
+        if (
+            "doesn't have a tablespoon" in stderr
+            or "doesn't have a teaspoon" in stderr
+            or "unit_not_supported" in stderr
+        ):
+            err["guidance"] = (
+                "STOP. This food entry does not support the user's requested unit. "
+                "DO NOT switch to a unit it does support — that converts the wrong way "
+                "and gives bad calories. Instead, call `search` again with DIFFERENT KEYWORDS "
+                "(add modifiers like 'fresh', 'homemade', 'plain', or remove brand words) "
+                "and pick a different `food_id` from the new search results that DOES support "
+                "the user's unit."
+            )
+        logger.warning("loseit-failed: %s", json.dumps(err))
+        return json.dumps(err)
     return proc.stdout.strip()
+
+
+# --------- Tools (ported from tools/agent-sandbox/agent.py) ----------------
 
 
 @_inner_agent.tool_plain
 def search(query: str) -> str:
     """Search the Lose It! food database for candidates matching `query`."""
-    return _run_loseit_search(query)
+    return _run_loseit(["search", query])
+
+
+@_inner_agent.tool_plain
+def describe_food(food_ids: list[str]) -> str:
+    """Inspect one or more foods by their hex `food_id`s (concurrently).
+
+    For each food_id, returns:
+      - primary_serving: {unit, native_qty_per_serving}
+      - cross_class_conversion: {per_serving_g, per_serving_ml} (nullable — tells you
+        whether the entry supports gram/mL logging)
+      - nutrients_per_serving: {calories, total_fat_g, sat_fat_g, carb_g, fiber_g, protein_g, ...}
+    """
+    return _run_loseit(["describe-food", *food_ids])
+
+
+@_inner_agent.tool_plain
+def log_food(
+    food_id: str,
+    meal: Literal["breakfast", "lunch", "dinner", "snacks"],
+    serving_amount: float | None = None,
+    serving_unit: str | None = None,
+    servings: float = 1.0,
+    on_date: str | None = None,
+    dry_run: bool = False,
+) -> str:
+    """Log a food to the diary. Default behaviour ACTUALLY WRITES the entry — that's the goal.
+
+    Args:
+        food_id: The 32-char hex food_id (from `search`).
+        meal: breakfast | lunch | dinner | snacks.
+        serving_amount: Quantity in `serving_unit` (e.g. 120 grams → 120). Pair with serving_unit.
+        serving_unit: One of: g, tsp, tbsp, cup, piece, each, fl_oz, mL, bottle, can, slice,
+            serving, scoop, container, pie. Bare "oz" is REJECTED — pick g or fl_oz.
+        servings: Use ONLY when not specifying serving_amount/unit (logs `servings` native servings).
+        on_date: YYYY-MM-DD for past-dated entries. Default: today.
+        dry_run: If True, preview without writing. DEFAULT FALSE — leave it false to actually log.
+    """
+    # Guardrail: a serving_amount > 30 in tsp/tbsp/fl_oz is almost certainly the model
+    # doing unit-conversion math after it failed to find a gram-supporting entry. Block
+    # it and force a re-search instead of letting absurd logs land in the diary.
+    if serving_unit in {"tsp", "tbsp", "fl_oz"} and serving_amount and serving_amount > 30:
+        guidance = (
+            f"REFUSING: {serving_amount} {serving_unit} is absurdly high for one food entry. "
+            "You almost certainly converted grams or milliliters into spoons after a previous "
+            "log_food failed. Don't do that — it gives huge wrong calorie counts. Instead, call "
+            "`search` again with a simpler query (just the food name, no user modifiers like "
+            "'homemade' or 'fresh') and `describe_food` the FIRST 3 results to find one with "
+            "`cross_class_conversion.per_serving_g != null`. Then log in the user's original unit."
+        )
+        err = {"error": "agent_guardrail_unit_conversion", "guidance": guidance}
+        logger.warning("guardrail-tripped: %s", json.dumps(err))
+        return json.dumps(err)
+
+    args = ["log", "--food-id", food_id, "--meal", meal]
+    if serving_amount is not None:
+        args += ["--serving-amount", str(serving_amount)]
+    if serving_unit:
+        args += ["--serving-unit", serving_unit]
+    if serving_amount is None and serving_unit is None:
+        args += ["--servings", str(servings)]
+    if on_date:
+        args += ["--date", on_date]
+    if dry_run:
+        args += ["--dry-run"]
+    return _run_loseit(args, json_output=False)
+
+
+@_inner_agent.tool_plain
+def diary(on_date: str | None = None) -> str:
+    """Read the user's diary for a given date (default: today).
+
+    Returns JSON with `date`, `count`, and `entries[]`. Each entry has `food_name`,
+    `food_brand`, `food_measure_unit`, `servings`, `meal_ordinal` (0=breakfast 1=lunch
+    2=dinner 3=snacks), and `nutrients_by_label: {calories, protein_g, ...}`.
+    """
+    args = ["diary"]
+    if on_date:
+        args += ["--date", on_date]
+    return _run_loseit(args)
+
+
+@_inner_agent.tool_plain
+def whoami() -> str:
+    """Print resolved Lose It! client configuration."""
+    return _run_loseit(["whoami"])
 
 
 # ------------------------------------------------------------ Kitaru wrap ----
@@ -235,26 +416,31 @@ except Exception as exc:  # noqa: BLE001
 
 agent = KitaruAgent(
     _inner_agent,
-    name="loseit-search-agent",
+    name="loseit-agent",
     checkpoint_strategy="calls",
 )
 
 
 # ------------------------------------------------------------- HTTP layer ----
 
-app = FastAPI(title="loseit-agent (S5 KitaruAgent + search)", version="0.5.0")
+app = FastAPI(title="loseit-agent (S6 KitaruAgent + 5 tools)", version="0.6.0")
 
 
 @app.on_event("startup")
 async def _on_startup() -> None:
     _fetch_loseit_creds_from_kitaru()
-    logger.info("agent ready: model=%s endpoint=%s", OLLAMA_MODEL, OLLAMA_BASE_URL)
+    logger.info(
+        "agent ready: model=%s endpoint=%s user_today=%s",
+        OLLAMA_MODEL,
+        OLLAMA_BASE_URL,
+        USER_TODAY,
+    )
 
 
 class RunRequest(BaseModel):
     """Body of POST /run."""
 
-    prompt: str = Field(..., description="Natural-language search request.")
+    prompt: str = Field(..., description="Natural-language request (search, log, diary, …).")
 
 
 def require_bearer(authorization: str | None = Header(default=None)) -> None:
@@ -359,6 +545,11 @@ async def _agent_stream(prompt: str) -> AsyncIterator[str]:
     untouched pydantic-ai events. So the run shows up in `kitaru.priv...` as
     an execution with per-call checkpoints, AND the Pipe sees the live
     statuses unchanged. Win-win.
+
+    S6 note: the magnitude guardrail (`tbsp/tsp/fl_oz` + >30) and the
+    "doesn't have a tablespoon" guidance rewrite both live in the tool layer
+    (log_food / _run_loseit) and return as a regular tool result — they show
+    up here as plain `tool_done` events with no special handling required.
     """
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     emitted_tool_ids: set[str] = set()
