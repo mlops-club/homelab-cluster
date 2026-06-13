@@ -6,37 +6,33 @@ Once uploaded, "loseit-agent" appears as a selectable model in the chat picker.
 Wire format consumed from the agent's SSE stream (one JSON object per `data:` line):
 
     {"kind":"tool",       "name":"...", "args_preview":"...", "call_id":"..."}
-    {"kind":"tool_done",  "call_id":"..."}
+    {"kind":"tool_done",  "name":"...", "call_id":"...", "elapsed_s": 1.3}
     {"kind":"model_call", "turn": 1}
-    {"kind":"checkpoint", "name":"search_tool", "phase":"started"|"finished",
-                          "elapsed_s": 1.5}
     {"kind":"wait",       "exec_id":"...", "wait_name":"...", "prompt":"...", "options":[...]}
     {"kind":"final",      "text":"..."}
     {"kind":"error",      "message":"..."}
 
-UX features:
-  - Heartbeat status every 3s while the agent is silent so the chat doesn't
-    feel like it hung. Shows elapsed-since-start.
-  - Surfaces Kitaru `checkpoint` events as live status — the agent's per-call
-    checkpoints (`search_tool`, `log_food_tool`, …) appear in the chat as the
-    agent works, even though we don't get pydantic-ai's per-call SSE frames
-    (those are mutually exclusive with kitaru.wait() in granular mode).
-  - On `wait`, renders the question + options as a normal chat message so
-    the user can reply (their reply auto-routes to /resume).
+UX:
+  - Each `tool` event appends `🔧 name(args)` to the message body.
+  - Each `tool_done` appends `✓ (1.3s)` on the same line.
+  - `wait` emits `❓ question + options` and the run pauses; the user's next
+    chat message resumes the run via the chat_id-keyed pending registry on
+    the server side (the Pipe itself is stateless across turns).
+  - `final` is appended after a blank line.
+
+No heartbeat, no per-event status pings — the streaming tool-call deltas
+already telegraph progress; an extra "thinking…" pill on top is just noise.
+A single status emission at the end ("Done (Ns)") closes the shimmer.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from typing import Any, AsyncIterator
 
 import httpx
 from pydantic import BaseModel
-
-
-HEARTBEAT_INTERVAL_S = 3.0
 
 
 class Pipe:
@@ -67,32 +63,8 @@ class Pipe:
 
         url = f"{self.valves.agent_url}/run"
         payload = {"prompt": prompt, "chat_id": chat_id}
-        initial_status = "Starting agent…"
 
         started = time.monotonic()
-        # Track the last "human-readable" status we showed; the heartbeat task
-        # re-emits it with an updated elapsed counter so the chat shimmer never
-        # looks frozen for more than HEARTBEAT_INTERVAL_S.
-        last_status: dict[str, str] = {"text": initial_status}
-
-        await self._status(__event_emitter__, f"{initial_status} (0s)", done=False)
-
-        async def heartbeat() -> None:
-            try:
-                while True:
-                    await asyncio.sleep(HEARTBEAT_INTERVAL_S)
-                    elapsed = int(time.monotonic() - started)
-                    await self._status(
-                        __event_emitter__,
-                        f"{last_status['text']} ({elapsed}s)",
-                        done=False,
-                    )
-            except asyncio.CancelledError:
-                return
-
-        hb_task = asyncio.create_task(heartbeat())
-
-        final_text = ""
 
         # We build up the chat message text in parallel with the deltas so the
         # function's return value at the end matches what Open WebUI rendered
@@ -100,10 +72,7 @@ class Pipe:
         # streaming deltas" differently; returning the same text we streamed
         # guarantees the chat shows the full trace either way.
         accumulated = ""
-
-        # Track in-flight tool calls so tool_done can render the elapsed time
-        # next to the matching opening line.
-        active_calls: dict[str, str] = {}  # call_id -> markdown-line text
+        final_text = ""
 
         try:
             async for evt in self._stream(url, payload):
@@ -111,48 +80,18 @@ class Pipe:
                 if kind == "tool":
                     name = evt.get("name", "?")
                     args = evt.get("args_preview", "")
-                    call_id = evt.get("call_id", "")
                     line = f"\n🔧 `{name}({args})` "
-                    active_calls[call_id] = line
                     accumulated += line
-                    last_status["text"] = f"→ {name}({args})"
-                    await self._status(__event_emitter__, last_status["text"], done=False)
-                    # Emit the tool call as a markdown line in the chat
                     await __event_emitter__(
                         {"type": "chat:message:delta", "data": {"content": line}}
                     )
                 elif kind == "tool_done":
-                    call_id = evt.get("call_id", "")
                     elapsed = evt.get("elapsed_s")
                     suffix = f"✓ ({elapsed:.1f}s)\n" if isinstance(elapsed, (int, float)) else "✓\n"
                     accumulated += suffix
-                    active_calls.pop(call_id, None)
-                    last_status["text"] = "thinking"
-                    await self._status(__event_emitter__, last_status["text"], done=False)
                     await __event_emitter__(
                         {"type": "chat:message:delta", "data": {"content": suffix}}
                     )
-                elif kind == "model_call":
-                    turn = evt.get("turn", "?")
-                    last_status["text"] = f"thinking (turn {turn})"
-                    await self._status(__event_emitter__, last_status["text"], done=False)
-                elif kind == "checkpoint":
-                    # Kitaru per-call checkpoint surfaced live by the server's
-                    # polling task — visible in lieu of pydantic-ai's per-call
-                    # SSE frames (which are turned off for kitaru.wait() reasons).
-                    cp_name = evt.get("name", "?")
-                    phase = evt.get("phase", "")
-                    elapsed_s = evt.get("elapsed_s")
-                    if phase == "started":
-                        last_status["text"] = f"→ {cp_name}"
-                    elif phase == "finished":
-                        if elapsed_s is not None:
-                            last_status["text"] = f"✓ {cp_name} ({elapsed_s:.1f}s)"
-                        else:
-                            last_status["text"] = f"✓ {cp_name}"
-                    else:
-                        last_status["text"] = f"{cp_name}: {phase}"
-                    await self._status(__event_emitter__, last_status["text"], done=False)
                 elif kind == "wait":
                     # Server already recorded the pending exec_id keyed by
                     # chat_id; we just need to render the question to the user.
@@ -172,7 +111,6 @@ class Pipe:
                     final_text = evt.get("text", "")
                     chunk = "\n\n" + final_text
                     accumulated += chunk
-                    # Append a separator + the final summary as chat content.
                     await __event_emitter__(
                         {"type": "chat:message:delta", "data": {"content": chunk}}
                     )
@@ -183,26 +121,18 @@ class Pipe:
                     )
                     final_text = f"Error: {msg}"
                     break
+                # `model_call` is dropped — the tool-call deltas already show
+                # progress and the extra status events crowd the message.
         except Exception as exc:
             await __event_emitter__(
                 {"type": "notification", "data": {"type": "error", "content": str(exc)}}
             )
-            hb_task.cancel()
             return f"Pipe transport error: {exc}"
-        finally:
-            hb_task.cancel()
-            try:
-                await hb_task
-            except (asyncio.CancelledError, Exception):
-                pass
 
-        # Always emit a final done so the shimmer stops.
+        # Single terminal status so the shimmer stops.
         elapsed = int(time.monotonic() - started)
         await self._status(__event_emitter__, f"Done ({elapsed}s)", done=True)
 
-        # Return the accumulated text we already streamed via deltas so the
-        # message body is consistent whether OW persists the deltas or the
-        # return value.
         return accumulated if accumulated else final_text
 
     async def _stream(self, url: str, payload: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
