@@ -77,7 +77,29 @@ class Pipe:
         try:
             async for evt in self._stream(url, payload):
                 kind = evt.get("kind")
-                if kind == "tool":
+                if kind == "link":
+                    url_ = evt.get("url", "")
+                    label = evt.get("label", "Open in Kitaru")
+                    line = f"\n[🔗 {label}]({url_})\n"
+                    accumulated += line
+                    await __event_emitter__(
+                        {"type": "chat:message:delta", "data": {"content": line}}
+                    )
+                elif kind == "reason":
+                    text = evt.get("text", "").strip()
+                    if not text:
+                        continue
+                    # Render reasoning between tool calls as a collapsed
+                    # block. Open WebUI strips <details> during markdown
+                    # sanitization in chat-message-delta updates, so we
+                    # use a unicode-quoted blockquote that still scans
+                    # visually as "model thinking."
+                    block = "\n> 💭 " + text.replace("\n", "\n> ") + "\n"
+                    accumulated += block
+                    await __event_emitter__(
+                        {"type": "chat:message:delta", "data": {"content": block}}
+                    )
+                elif kind == "tool":
                     # We render the tool call as ONE <details> block at
                     # tool_done time; nothing to emit here.
                     pass

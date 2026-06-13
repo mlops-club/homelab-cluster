@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     agent_token_expected: str = ""
     kitaru_flow_name: str = "loseit_agent_flow"
     kitaru_flow_tag: str = "default"
+    kitaru_ui_base: str = "https://kitaru.priv.mlops-club.org"
     chat_ttl_minutes: int = 30
     chat_sweep_interval_s: int = 60
     execution_poll_interval_s: float = 1.0
@@ -167,18 +168,86 @@ async def _run_or_resume(chat_id: str, prompt: str) -> AsyncIterator[str]:
         yield frame
 
 
+def _kitaru_link(exec_id: str, flow_id: str | None = None) -> str:
+    base = SETTINGS.kitaru_ui_base.rstrip("/")
+    if flow_id:
+        return f"{base}/flows/{flow_id}/executions/{exec_id}"
+    return f"{base}/executions/{exec_id}"
+
+
+def _safe_load(art: Any) -> Any:
+    try:
+        return art.load()
+    except Exception as exc:
+        return f"<unloadable: {type(exc).__name__}>"
+
+
+def _trim(s: Any, n: int = 80) -> str:
+    text = s if isinstance(s, str) else json.dumps(s, default=str)
+    return (text[: n - 1] + "…") if len(text) > n else text
+
+
+def _tool_args_for(cp: Any) -> str:
+    """Return a compact preview of a tool checkpoint's args."""
+    for art in getattr(cp, "artifacts", None) or []:
+        if getattr(art, "kind", None) == "input" and getattr(art, "name", "") == "tool_args":
+            val = _safe_load(art)
+            # tool_args is usually {"args": {...}} or just the kwargs dict
+            if isinstance(val, dict) and "args" in val and len(val) == 1:
+                val = val["args"]
+            if isinstance(val, dict):
+                # Render as k=v compact
+                return _trim(", ".join(f"{k}={_trim(v, 20)}" for k, v in val.items()))
+            return _trim(val)
+    return ""
+
+
+def _model_response_text(cp: Any) -> str:
+    """Read the model's text response from an llm_call checkpoint's output artifact."""
+    for art in getattr(cp, "artifacts", None) or []:
+        if getattr(art, "kind", None) == "response":
+            val = _safe_load(art)
+            return _extract_text(val)
+    return ""
+
+
+def _extract_text(val: Any) -> str:
+    """Drill into a pydantic-ai ModelResponse to find user-visible text."""
+    if isinstance(val, str):
+        return val
+    parts = getattr(val, "parts", None) if not isinstance(val, dict) else val.get("parts")
+    if parts:
+        out = []
+        for p in parts:
+            if hasattr(p, "content"):
+                out.append(str(p.content))
+            elif isinstance(p, dict) and "content" in p:
+                out.append(str(p["content"]))
+        if out:
+            return "\n".join(out).strip()
+    return str(val)[:500] if val is not None else ""
+
+
 async def _stream_execution(
     client: Any, exec_id: str, chat: ChatState
 ) -> AsyncIterator[str]:
-    """Poll the Kitaru execution and emit tool/final/wait/error frames.
+    """Poll the Kitaru execution and emit link/tool/reason/final/wait/error frames.
 
-    Kitaru's `client.executions.events()` requires server-side streaming
-    which is disabled on the homelab Kitaru deployment, so we poll
-    `executions.get()` and `executions.list_checkpoints()` on a tick.
-    Each new checkpoint becomes a `tool` then `tool_done` frame.
+    Kitaru's `executions.events()` is server-side disabled so we poll
+    `executions.get(exec_id)` (hydrates checkpoints + artifacts) on a tick.
+
+    Frame schedule per Kitaru checkpoint kind:
+      * loseit_agent_model_request[_N] (llm_call): when it completes,
+        we load the response artifact and yield a `reason` frame with
+        the model's chain-of-thought-ish text. The LAST one is the
+        final answer.
+      * <tool>_tool: yield `tool` frame on enter (running), `tool_done`
+        on exit. args_preview is read from the `tool_args` artifact.
     """
-    seen_checkpoints: set[str] = set()
-    started_checkpoints: dict[str, float] = {}
+    seen_started: set[str] = set()
+    seen_done: set[str] = set()
+    last_llm_text = ""
+    link_emitted = False
 
     while True:
         try:
@@ -189,44 +258,64 @@ async def _stream_execution(
             chat.pending_wait_name = None
             return
 
-        try:
-            checkpoints = await asyncio.to_thread(execution.list_checkpoints)
-        except Exception:
-            checkpoints = []
+        if not link_emitted:
+            flow_id = getattr(execution, "flow_id", None)
+            yield _sse({
+                "kind": "link",
+                "url": _kitaru_link(exec_id, flow_id),
+                "label": "Open this run in Kitaru",
+            })
+            link_emitted = True
 
+        checkpoints = list(getattr(execution, "checkpoints", None) or [])
         for cp in checkpoints:
             cp_name = getattr(cp, "name", "?")
-            cp_id = getattr(cp, "id", cp_name)
-            cp_status = getattr(cp, "status", "")
-            key = f"{cp_id}:{cp_name}"
-            if key in seen_checkpoints:
-                continue
-            if not cp_name.endswith("_tool"):
-                continue
-            tool_name = cp_name[:-5]
-            if cp_status in ("running", "started"):
-                started_checkpoints[key] = time.monotonic()
-                yield _sse({
-                    "kind": "tool",
-                    "name": tool_name,
-                    "args_preview": "",
-                    "call_id": str(cp_id),
-                })
-            elif cp_status in ("completed", "succeeded", "finished", "failed"):
-                seen_checkpoints.add(key)
-                elapsed = round(time.monotonic() - started_checkpoints.pop(key, time.monotonic()), 2)
-                yield _sse({
-                    "kind": "tool_done",
-                    "name": tool_name,
-                    "args_preview": "",
-                    "call_id": str(cp_id),
-                    "elapsed_s": elapsed,
-                    "result_preview": "",
-                    "result_truncated": False,
-                    "is_error": cp_status == "failed",
-                })
+            cp_id = str(getattr(cp, "call_id", cp_name))
+            cp_status = str(getattr(cp, "status", ""))
 
-        status = getattr(execution, "status", "")
+            is_tool = cp_name.endswith("_tool")
+            is_llm = cp_name.startswith("loseit_agent_model_request") or cp_name.startswith("loseit-agent_model_request")
+
+            if is_tool:
+                tool_name = cp_name[:-5]
+                if cp_status in ("running", "started", "executionstatus.running") and cp_id not in seen_started:
+                    seen_started.add(cp_id)
+                    yield _sse({
+                        "kind": "tool",
+                        "name": tool_name,
+                        "args_preview": _tool_args_for(cp),
+                        "call_id": cp_id,
+                    })
+                elif "completed" in cp_status or "succeeded" in cp_status or "finished" in cp_status or "failed" in cp_status:
+                    if cp_id in seen_done:
+                        continue
+                    seen_done.add(cp_id)
+                    seen_started.add(cp_id)
+                    started_at = getattr(cp, "started_at", None)
+                    ended_at = getattr(cp, "ended_at", None)
+                    elapsed = (ended_at - started_at).total_seconds() if started_at and ended_at else None
+                    yield _sse({
+                        "kind": "tool_done",
+                        "name": tool_name,
+                        "args_preview": _tool_args_for(cp),
+                        "call_id": cp_id,
+                        "elapsed_s": round(elapsed, 2) if elapsed is not None else None,
+                        "result_preview": "",
+                        "result_truncated": False,
+                        "is_error": "failed" in cp_status,
+                    })
+
+            elif is_llm and ("completed" in cp_status or "succeeded" in cp_status):
+                if cp_id in seen_done:
+                    continue
+                seen_done.add(cp_id)
+                text = _model_response_text(cp)
+                if text and text != last_llm_text:
+                    last_llm_text = text
+                    yield _sse({"kind": "reason", "text": text})
+
+        status_value = getattr(execution, "status", "")
+        status_str = str(status_value).lower()
         pending_wait = getattr(execution, "pending_wait", None)
 
         if pending_wait:
@@ -237,33 +326,26 @@ async def _stream_execution(
                 "exec_id": exec_id,
                 "wait_name": wait_name,
                 "prompt": getattr(pending_wait, "question", "Need clarification."),
-                "options": getattr(pending_wait, "options", []) or [],
+                "options": (getattr(pending_wait, "metadata", {}) or {}).get("tool_args", {}).get("options", []) or [],
             })
             return
 
-        if status in ("completed", "succeeded", "finished"):
-            output = getattr(execution, "output", None)
-            # Note: list_artifacts() requires the s3fs+boto3 artifact_store
-            # implementation to be importable, which the gateway image
-            # intentionally omits. Kitaru's `execution.output` is None even
-            # on success today (Kitaru doesn't capture the flow's str return
-            # into that field), so the chat gets a generic completion frame.
-            # The per-tool icons telegraph what happened; the actual agent
-            # answer would need to be persisted to Kitaru metadata for the
-            # gateway to surface it.
-            yield _sse({"kind": "final", "text": str(output or "(flow completed — see Kitaru run inspector for tool detail)")})
+        if "completed" in status_str or "succeeded" in status_str or "finished" in status_str:
+            # last_llm_text was set from the LAST llm_call's response —
+            # that's the agent's final answer to the user.
+            yield _sse({"kind": "final", "text": last_llm_text or "(flow completed)"})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
 
-        if status in ("failed", "errored", "cancelled"):
+        if "failed" in status_str or "errored" in status_str or "cancelled" in status_str:
             reason = getattr(execution, "status_reason", "") or "(no reason)"
-            yield _sse({"kind": "error", "message": f"execution {status}: {reason}"})
+            yield _sse({"kind": "error", "message": f"execution {status_str}: {reason}"})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
 
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(SETTINGS.execution_poll_interval_s)
 
 
 def main() -> None:
