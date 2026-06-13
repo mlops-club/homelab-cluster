@@ -74,35 +74,46 @@ class Pipe:
         accumulated = ""
         final_text = ""
 
+        # Build the message body in-memory and finalize via
+        # chat:message:replace at the very end. That replace event lets
+        # native HTML <details> blocks through where chat:message:delta
+        # would have sanitised them away. While polling we still emit
+        # status pills so the user sees activity in real time.
+        link_url = ""
+
         try:
             async for evt in self._stream(url, payload):
                 kind = evt.get("kind")
                 if kind == "link":
-                    url_ = evt.get("url", "")
+                    link_url = evt.get("url", "")
                     label = evt.get("label", "Open in Kitaru")
-                    line = f"\n[🔗 {label}]({url_})\n"
-                    accumulated += line
-                    await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": line}}
-                    )
+                    accumulated += f"[🔗 {label}]({link_url})\n\n"
+                    await self._status(__event_emitter__, "Run started", done=False)
                 elif kind == "reason":
                     text = evt.get("text", "").strip()
                     if not text:
                         continue
-                    # Render reasoning between tool calls as a collapsed
-                    # block. Open WebUI strips <details> during markdown
-                    # sanitization in chat-message-delta updates, so we
-                    # use a unicode-quoted blockquote that still scans
-                    # visually as "model thinking."
-                    block = "\n> 💭 " + text.replace("\n", "\n> ") + "\n"
-                    accumulated += block
-                    await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": block}}
+                    snippet = text.splitlines()[0][:80]
+                    # OpenWebUI's middleware renders
+                    #   <details type="reasoning" done="true" duration="N">
+                    # as a click-to-expand "Thought for N seconds" widget.
+                    # We don't have a real duration here, so 0 is fine —
+                    # the header still shows the summary.
+                    accumulated += (
+                        '\n<details type="reasoning" done="true" duration="0">\n'
+                        f'<summary>💭 {snippet}</summary>\n\n'
+                        f'{text}\n'
+                        '</details>\n'
+                    )
+                    await self._status(
+                        __event_emitter__, f"Reasoning: {snippet}", done=False
                     )
                 elif kind == "tool":
-                    # We render the tool call as ONE <details> block at
-                    # tool_done time; nothing to emit here.
-                    pass
+                    name = evt.get("name", "?")
+                    args = evt.get("args_preview", "")
+                    await self._status(
+                        __event_emitter__, f"Calling {name}({args})", done=False
+                    )
                 elif kind == "tool_done":
                     name = evt.get("name", "?")
                     args = evt.get("args_preview", "")
@@ -110,37 +121,48 @@ class Pipe:
                     elapsed_s = f"{elapsed:.1f}s" if isinstance(elapsed, (int, float)) else "?"
                     is_error = evt.get("is_error")
                     marker = "❌" if is_error else "✓"
-                    # We do NOT inline result_preview. OW strips <details> during
-                    # markdown sanitization, so the only thing that renders is a
-                    # giant fenced code block per call — buries the final answer.
-                    # The tool-icon line is the contract; raw JSON goes to logs.
-                    line = f"\n🔧 {name}({args}) {marker} ({elapsed_s})\n"
-                    accumulated += line
-                    await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": line}}
+                    call_id = evt.get("call_id", "")
+                    result_preview = evt.get("result_preview", "") or ""
+                    truncated = evt.get("result_truncated")
+                    body = result_preview if result_preview else "(no result captured)"
+                    if truncated:
+                        body += "\n\n(truncated; see Kitaru run inspector)"
+                    # OpenWebUI renders
+                    #   <details type="tool_calls" done="true" id=… name=…>
+                    # as a "Tool Executed" collapsible. We include the args
+                    # in the summary so the closed header is informative.
+                    accumulated += (
+                        f'\n<details type="tool_calls" done="true" '
+                        f'id="{call_id}" name="{name}" arguments="">\n'
+                        f"<summary>🔧 {name}({args}) {marker} ({elapsed_s})</summary>\n\n"
+                        "```\n"
+                        f"{body}\n"
+                        "```\n\n"
+                        "</details>\n"
+                    )
+                    await self._status(
+                        __event_emitter__,
+                        f"Tool {name} done ({elapsed_s})",
+                        done=False,
                     )
                 elif kind == "wait":
                     # Server already recorded the pending exec_id keyed by
-                    # chat_id; we just need to render the question to the user.
+                    # chat_id; the question becomes the user-visible final
+                    # message (no plain answer when paused). The final
+                    # chat:message:replace at the end of this loop will
+                    # render it; emitting it now via delta would double-print.
                     question = evt.get("prompt") or "Need clarification."
                     options = evt.get("options") or []
                     body_text = "\n\n❓ **" + question + "**\n"
                     if options:
                         body_text += "\n" + "\n".join(f"- {o}" for o in options)
                         body_text += "\n\n*(Reply with one of the options above, or type your own — your next message in this chat continues the run.)*"
-                    accumulated += body_text
-                    await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": body_text}}
-                    )
                     final_text = body_text
                     break
                 elif kind == "final":
-                    final_text = evt.get("text", "")
-                    chunk = "\n\n" + final_text
-                    accumulated += chunk
-                    await __event_emitter__(
-                        {"type": "chat:message:delta", "data": {"content": chunk}}
-                    )
+                    # `final` is the agent's last visible answer; it goes
+                    # into the chat as plain text below the collapsibles.
+                    final_text = evt.get("text", "") or final_text
                 elif kind == "error":
                     msg = evt.get("message", "agent error")
                     await __event_emitter__(
@@ -156,11 +178,21 @@ class Pipe:
             )
             return f"Pipe transport error: {exc}"
 
-        # Single terminal status so the shimmer stops.
+        # Compose the final body and replace the whole message in one
+        # shot. chat:message:replace lets <details>...</details> through
+        # where chat:message:delta would have stripped them.
+        body = accumulated
+        if final_text:
+            body += "\n" + final_text + "\n"
+
+        await __event_emitter__(
+            {"type": "chat:message:replace", "data": {"content": body}}
+        )
+
         elapsed = int(time.monotonic() - started)
         await self._status(__event_emitter__, f"Done ({elapsed}s)", done=True)
 
-        return accumulated if accumulated else final_text
+        return body if body else final_text
 
     async def _stream(self, url: str, payload: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         headers = {"Content-Type": "application/json"}

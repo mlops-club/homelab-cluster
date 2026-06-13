@@ -211,6 +211,17 @@ def _model_response_text(cp: Any) -> str:
     return ""
 
 
+def _tool_output_text(cp: Any) -> tuple[str, bool]:
+    """Read a tool checkpoint's return value from its output artifact."""
+    for art in getattr(cp, "artifacts", None) or []:
+        if getattr(art, "kind", None) == "output":
+            val = _safe_load(art)
+            text = val if isinstance(val, str) else json.dumps(val, default=str)
+            truncated = len(text) > 4000
+            return (text[:4000], truncated)
+    return ("", False)
+
+
 def _extract_text(val: Any) -> str:
     """Drill into a pydantic-ai ModelResponse to find user-visible text."""
     if isinstance(val, str):
@@ -247,6 +258,12 @@ async def _stream_execution(
     seen_started: set[str] = set()
     seen_done: set[str] = set()
     last_llm_text = ""
+    # We hold back the most recent llm_call so we can decide whether it
+    # is intermediate (becomes a `reason` frame, rendered as a
+    # collapsible) or final (becomes a `final` frame, rendered as plain
+    # text). Flush as `reason` when a later checkpoint arrives; flush as
+    # `final` when the execution completes.
+    pending_llm: dict[str, str] = {}  # cp_id -> text
     link_emitted = False
 
     while True:
@@ -279,6 +296,11 @@ async def _stream_execution(
             if is_tool:
                 tool_name = cp_name[:-5]
                 if cp_status in ("running", "started", "executionstatus.running") and cp_id not in seen_started:
+                    # Flush any held llm_call as `reason` — a new tool
+                    # checkpoint means the held reason wasn't the last.
+                    for held_id, held_text in list(pending_llm.items()):
+                        yield _sse({"kind": "reason", "text": held_text})
+                        pending_llm.pop(held_id, None)
                     seen_started.add(cp_id)
                     yield _sse({
                         "kind": "tool",
@@ -289,19 +311,28 @@ async def _stream_execution(
                 elif "completed" in cp_status or "succeeded" in cp_status or "finished" in cp_status or "failed" in cp_status:
                     if cp_id in seen_done:
                         continue
+                    # Flush held llm_calls before the tool (they were
+                    # intermediate reasoning between tools, not the final
+                    # answer). This branch also triggers when polling
+                    # arrives after the tool has already transitioned
+                    # through `running` → `completed` between ticks.
+                    for held_id, held_text in list(pending_llm.items()):
+                        yield _sse({"kind": "reason", "text": held_text})
+                        pending_llm.pop(held_id, None)
                     seen_done.add(cp_id)
                     seen_started.add(cp_id)
                     started_at = getattr(cp, "started_at", None)
                     ended_at = getattr(cp, "ended_at", None)
                     elapsed = (ended_at - started_at).total_seconds() if started_at and ended_at else None
+                    result_text, result_truncated = _tool_output_text(cp)
                     yield _sse({
                         "kind": "tool_done",
                         "name": tool_name,
                         "args_preview": _tool_args_for(cp),
                         "call_id": cp_id,
                         "elapsed_s": round(elapsed, 2) if elapsed is not None else None,
-                        "result_preview": "",
-                        "result_truncated": False,
+                        "result_preview": result_text,
+                        "result_truncated": result_truncated,
                         "is_error": "failed" in cp_status,
                     })
 
@@ -312,7 +343,11 @@ async def _stream_execution(
                 text = _model_response_text(cp)
                 if text and text != last_llm_text:
                     last_llm_text = text
-                    yield _sse({"kind": "reason", "text": text})
+                    # Hold the reason text. If another checkpoint comes
+                    # along, this one was intermediate (flushed as
+                    # `reason` above). If the execution finishes first,
+                    # this one is the final answer.
+                    pending_llm[cp_id] = text
 
         status_value = getattr(execution, "status", "")
         status_str = str(status_value).lower()
@@ -331,9 +366,15 @@ async def _stream_execution(
             return
 
         if "completed" in status_str or "succeeded" in status_str or "finished" in status_str:
-            # last_llm_text was set from the LAST llm_call's response —
-            # that's the agent's final answer to the user.
-            yield _sse({"kind": "final", "text": last_llm_text or "(flow completed)"})
+            # The held llm_call (if any) is the agent's final answer —
+            # the user asked for it as plain text, not as a collapsible.
+            final_text = ""
+            if pending_llm:
+                final_text = list(pending_llm.values())[-1]
+                pending_llm.clear()
+            elif last_llm_text:
+                final_text = last_llm_text
+            yield _sse({"kind": "final", "text": final_text or "(flow completed)"})
             chat.pending_exec_id = None
             chat.pending_wait_name = None
             return
