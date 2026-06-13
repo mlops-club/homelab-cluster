@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loseit-agent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loseit-agent
+  namespace: loseit-agent
+  labels:
+    app: loseit-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loseit-agent
+  template:
+    metadata:
+      labels:
+        app: loseit-agent
+    spec:
+      imagePullSecrets:
+        - name: harbor-creds
+      containers:
+        - name: agent
+          image: cr.priv.mlops-club.org/loseit-agent/agent:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: AGENT_TOKEN_EXPECTED
+              valueFrom:
+                secretKeyRef:
+                  name: agent-token
+                  key: token
+            - name: KITARU_SERVER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kitaru-api-key
+                  key: server_url
+            - name: KITARU_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kitaru-api-key
+                  key: api_key
+            - name: KITARU_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kitaru-api-key
+                  key: api_key
+            - name: KITARU_PROJECT
+              value: "02702c00-0cc6-4551-8964-64fde34ed99b"
+            - name: ZENML_ACTIVE_STACK_ID
+              value: "9f2835ba-5093-48e0-8e04-baa3061f238d"
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama.ollama.svc.cluster.local:11434/v1"
+            - name: OLLAMA_MODEL
+              value: "qwen3:8b"
+          volumeMounts:
+            - name: home
+              mountPath: /home/agent
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loseit-agent
+  namespace: loseit-agent
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  selector:
+    app: loseit-agent
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: loseit-agent
+  namespace: loseit-agent
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+    - hosts: [loseit-agent.priv.mlops-club.org]
+      secretName: priv-wildcard-tls
+  rules:
+    - host: loseit-agent.priv.mlops-club.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: loseit-agent
+                port:
+                  number: 80

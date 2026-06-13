@@ -101,7 +101,7 @@ class Pipe:
 
                     block = (
                         f"\n<details>\n"
-                        f"<summary>🔧 <code>{name}({args})</code> {marker} ({elapsed_s})</summary>\n"
+                        f"<summary>🔧 {name}({args}) {marker} ({elapsed_s})</summary>\n"
                         + "\n".join(body_lines)
                         + "\n\n</details>\n"
                     )
