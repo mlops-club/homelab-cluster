@@ -1,8 +1,7 @@
 # Multi-stage uv-based image for the loseit-agent FastAPI service.
 #
-# Slice S4: the image now ships the real pydantic-ai agent + the `loseit` CLI
-# alongside the FastAPI server. S5 will add the Kitaru SDK; S6 adds 4 more
-# tools (no new Python deps needed).
+# Slice S5: the image now also ships the Kitaru SDK (with its pydantic-ai
+# adapter extra). S6 will add 4 more tools (no new Python deps needed).
 #
 # Base image rationale: ghcr.io/astral-sh/uv:python3.12-bookworm-slim ships
 # both uv and CPython 3.12 in a slim Debian base, so we skip the pip-vs-uv
@@ -30,14 +29,24 @@ RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}" \
     VIRTUAL_ENV=/opt/venv
 
-# Pin pydantic-ai to the 1.x line — its agent tool-calling / streaming APIs
-# are stabilizing but minor versions still introduce breaking renames.
+# We install `pydantic-ai-slim[openai]` rather than the full `pydantic-ai`
+# meta-package because the full distribution pulls in extras (fastmcp,
+# logfire, etc.) that drag in opentelemetry-sdk constraints conflicting
+# with kitaru[pydantic-ai]==0.15.0 → zenml[local]>=0.94.6 → opentelemetry-sdk
+# ==1.38.0. The slim package gives us `Agent`, `RunContext`, the OpenAI
+# provider/model classes, and all the streaming-message types we use —
+# everything in server.py works against the slim distribution.
+#
+# Version range matches what Kitaru's pydantic-ai adapter supports
+# (>=1.89,<1.104). uvicorn is bumped to >=0.35 because kitaru's MCP
+# transitive dep `fastmcp` requires it.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
       "fastapi==0.115.*" \
-      "uvicorn[standard]==0.32.*" \
+      "uvicorn[standard]>=0.35,<0.40" \
       "httpx>=0.28,<0.29" \
-      "pydantic-ai>=1,<2" \
+      "pydantic-ai-slim[openai]>=1.89,<1.104" \
+      "kitaru[pydantic-ai]==0.15.0" \
       "git+https://github.com/phitoduck/lose-it@main"
 
 # ---------- runtime ----------

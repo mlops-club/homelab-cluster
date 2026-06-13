@@ -1,9 +1,11 @@
-"""Slice S4 (+ Kitaru-secrets migration): FastAPI service for a pydantic-ai agent.
+"""Slice S5: FastAPI service for a Kitaru-wrapped pydantic-ai agent.
 
-The agent drives the `loseit` CLI via a single `search` tool, backed by qwen3:8b
-on the homelab Ollama. The SSE wire format on `POST /run` is preserved verbatim
-from S2 — the Pipe already speaks it. Each pydantic-ai stream event is
-translated into one of the schemas defined in apps/loseit-agent/SPEC.md:
+The pydantic-ai Agent (single `search` tool, qwen3:8b on homelab Ollama) is
+now wrapped in `KitaruAgent`, so every `POST /run` becomes a durable Kitaru
+execution with per-call checkpoints visible in the Kitaru UI / API. The SSE
+wire format on `POST /run` is preserved verbatim from S2/S4 — the Pipe and
+selftest already speak it. Each pydantic-ai stream event is translated into
+one of the schemas defined in apps/loseit-agent/SPEC.md:
 
     data: {"kind":"tool",       "name":"search", "args_preview":"<query>", "call_id":"..."}
     data: {"kind":"tool_done",  "call_id":"<same id>"}
@@ -23,7 +25,14 @@ $KITARU_API_KEY). The secret carries four keys — `token`, `user_id`,
 lose-it CLI's pydantic-settings loader picks them up automatically. No K8s
 Secret for the loseit JWT — per SPEC §"Agent ↔ Lose It!".
 
-Slices S5-S7 add: KitaruAgent wrapping (S5), 4 more tools (S6), wait/resume (S7).
+Kitaru auth: the K8s Secret exposes `KITARU_API_KEY` + `KITARU_SERVER_URL`.
+The Kitaru Python client (used both indirectly by `KitaruAgent` to record
+runs and directly by us for secret fetch) reads `KITARU_AUTH_TOKEN` and
+`KITARU_SERVER_URL` from the environment — no `kitaru.login()` call is
+required for service-account API keys. We bridge `KITARU_API_KEY` →
+`KITARU_AUTH_TOKEN` at import time so the manifest doesn't need to set both.
+
+Slices S6-S7 add: 4 more tools (S6), wait/resume (S7).
 """
 
 from __future__ import annotations
@@ -33,7 +42,6 @@ import json
 import logging
 import os
 import subprocess
-import uuid
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -41,7 +49,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -50,7 +58,6 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.run import AgentRunResultEvent
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("loseit-agent")
@@ -64,6 +71,27 @@ LOSEIT_TOKEN_PATH = Path(os.environ.get("LOSEIT_TOKEN_PATH", "/home/agent/.confi
 KITARU_SERVER_URL = os.environ.get("KITARU_SERVER_URL", "")
 KITARU_API_KEY = os.environ.get("KITARU_API_KEY", "")
 KITARU_LOSEIT_SECRET_NAME = os.environ.get("KITARU_LOSEIT_SECRET_NAME", "loseit-token")
+
+# Bridge our K8s-Secret-style env vars to the names the Kitaru Python client
+# expects. The client (and the KitaruAgent runtime that records executions to
+# the Kitaru server) auto-picks up `KITARU_AUTH_TOKEN` + `KITARU_SERVER_URL`
+# from os.environ — no explicit `kitaru.login()` needed for a service-account
+# API key. We keep `KITARU_API_KEY` as the canonical secret-key name in the
+# manifest because that's what `kitaru auth api-keys create` mints, and
+# bridge it here so we don't have to set the same value twice on the pod.
+if KITARU_API_KEY and not os.environ.get("KITARU_AUTH_TOKEN"):
+    os.environ["KITARU_AUTH_TOKEN"] = KITARU_API_KEY
+
+# Default to the `default` project — Kitaru's SDK refuses to talk to a remote
+# server without an active project (KitaruUsageError), and `default` is the
+# project the kitaru server auto-creates on first boot. We also set the
+# ZenML-flavored env vars because the underlying ZenML stack honors those
+# directly; setting both means it doesn't matter which layer wins. The
+# operator can override KITARU_PROJECT (and the ZenML twins) via a future
+# manifest tweak if we ever go multi-project.
+os.environ.setdefault("KITARU_PROJECT", "default")
+os.environ.setdefault("ZENML_ACTIVE_PROJECT_ID", "default")
+os.environ.setdefault("ZENML_PROJECT", "default")
 
 
 # ------------------------------------------------------------------ startup --
@@ -147,8 +175,12 @@ SYSTEM_PROMPT = (
     "(name, brand if any, and the food_id). Don't try to log anything yet."
 )
 
-agent: Agent[None, str] = Agent(
+# `name=` is REQUIRED by KitaruAgent (it's how runs are grouped in the UI).
+# Setting it on the inner Agent also gives KitaruAgent a sensible default if
+# we forget to pass `name=` again at the wrapping layer.
+_inner_agent: Agent[None, str] = Agent(
     _model,
+    name="loseit-search-agent",
     system_prompt=SYSTEM_PROMPT,
     retries=2,
 )
@@ -177,15 +209,40 @@ def _run_loseit_search(query: str) -> str:
     return proc.stdout.strip()
 
 
-@agent.tool_plain
+@_inner_agent.tool_plain
 def search(query: str) -> str:
     """Search the Lose It! food database for candidates matching `query`."""
     return _run_loseit_search(query)
 
 
+# ------------------------------------------------------------ Kitaru wrap ----
+#
+# Wrap the inner agent with KitaruAgent so each call to `agent.run(...)`
+# becomes a durable execution recorded against the Kitaru server. We can't
+# attach the event_stream_handler here at construction time because it needs
+# to push events into a per-request asyncio.Queue — so we build the handler
+# inside `_agent_stream` and pass it as a per-call override via the
+# `event_stream_handler=` kwarg to `agent.run(...)` (pydantic-ai's
+# AbstractAgent contract; KitaruAgent forwards it).
+#
+# `checkpoint_strategy="calls"` opens one checkpoint per model/tool call —
+# what the SPEC wants for an inspectable per-call tree in the UI.
+try:
+    from kitaru.adapters.pydantic_ai import KitaruAgent  # type: ignore[import-not-found]
+except Exception as exc:  # noqa: BLE001
+    logger.exception("kitaru adapter import failed: %s", exc)
+    raise
+
+agent = KitaruAgent(
+    _inner_agent,
+    name="loseit-search-agent",
+    checkpoint_strategy="calls",
+)
+
+
 # ------------------------------------------------------------- HTTP layer ----
 
-app = FastAPI(title="loseit-agent (S4 pydantic-ai + search)", version="0.4.0")
+app = FastAPI(title="loseit-agent (S5 KitaruAgent + search)", version="0.5.0")
 
 
 @app.on_event("startup")
@@ -263,92 +320,115 @@ def _args_preview(part: ToolCallPart) -> str:
 
 
 async def _agent_stream(prompt: str) -> AsyncIterator[str]:
-    """Drive the pydantic-ai Agent and translate its events into SSE frames.
+    """Drive the KitaruAgent and translate its events into SSE frames.
 
-    Mapping:
-      - PartStartEvent(ToolCallPart) → `tool` event (we use part-start because
-        FunctionToolCallEvent fires only AFTER args are validated, so it's
-        slightly later in the wall-clock timeline — emitting on part-start
-        lets the chat shimmer flip to `→ search(...)` as soon as the model
-        commits to a call).
+    Architecture note (why this is a queue-and-producer, not a generator):
+
+    With `KitaruAgent.run(prompt, event_stream_handler=...)`, pydantic-ai
+    invokes our handler ONCE per model-request/tool-call "event stream" —
+    each invocation gets its own `AsyncIterable[AgentStreamEvent]`. The
+    handler itself doesn't yield SSE frames (its signature is `async def
+    h(ctx, stream) -> None`). So we plumb events out through an
+    `asyncio.Queue` that this generator drains. A producer task runs
+    `agent.run(...)`; the handler stuffs SSE frames into the queue as events
+    arrive; we yield them as fast as we get them. The terminal `final` /
+    `error` frame is pushed by the producer task after `run()` returns or
+    raises, then a sentinel `None` closes the stream.
+
+    Event mapping (Pipe-stable — same wire format as S4):
+      - PartStartEvent(ToolCallPart) → `tool` event keyed by call_id. We use
+        part-start because FunctionToolCallEvent only fires AFTER args are
+        validated, so it lands slightly later on the wall clock — emitting
+        on part-start flips the chat shimmer to `→ search(...)` as soon as
+        the model commits to a call.
+      - FunctionToolCallEvent → `tool` event (deduped by call_id, so the
+        chat doesn't see the status flip twice if both events fire).
       - FunctionToolResultEvent → `tool_done` event keyed by call_id.
-      - Each new `ModelRequestNode` increments `turn` and emits `model_call`.
-      - `AgentRunResultEvent` (terminal) carries `result.output` → `final`.
-      - Any raised exception is surfaced as one `error` event before the
-        stream closes.
+      - Each top-level handler invocation increments `turn` and emits one
+        `model_call` event. This matches the original S4 semantics (one per
+        ModelRequestNode) closely enough — pydantic-ai calls the handler
+        once per model-request stream and once per tool-call stream, and we
+        treat any handler invocation whose first event is NOT a tool result
+        as a model turn. The SPEC marks `model_call` as optional, so even
+        if this heuristic over- or under-counts the chat status is still
+        useful as progress signal.
 
-    We emit through an `asyncio.Queue` rather than yielding directly inside
-    `event_stream_handler` so the handler can stay a clean async callable
-    (pydantic-ai will await it for every event) while the StreamingResponse
-    consumer pulls frames out asynchronously.
+    On the Kitaru side, this is all pure forwarding — KitaruAgent intercepts
+    the same event stream upstream of our handler to open checkpoints and
+    record artifacts; the wrapper guarantees our handler still receives the
+    untouched pydantic-ai events. So the run shows up in `kitaru.priv...` as
+    an execution with per-call checkpoints, AND the Pipe sees the live
+    statuses unchanged. Win-win.
     """
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     emitted_tool_ids: set[str] = set()
     turn = 0
 
-    async def emit_event(event: object) -> None:
+    async def event_stream_handler(
+        ctx: RunContext[None],
+        stream: AsyncIterator[object],
+    ) -> None:
         nonlocal turn
-        # FunctionToolCallEvent: validated tool call about to run. We dedupe
-        # against PartStartEvent so the chat doesn't see the status flip twice.
-        if isinstance(event, FunctionToolCallEvent):
-            call_id = event.part.tool_call_id
-            if call_id in emitted_tool_ids:
-                return
-            emitted_tool_ids.add(call_id)
-            await queue.put(
-                _sse(
-                    {
-                        "kind": "tool",
-                        "name": event.part.tool_name,
-                        "args_preview": _args_preview(event.part),
-                        "call_id": call_id,
-                    }
+        # Determine if this handler invocation is a model-request stream
+        # (first event is NOT a tool-result) vs a tool-execution stream.
+        # We bump `turn` at the first event of a non-tool-result stream.
+        # This is a coarse heuristic but matches the original S4 cadence
+        # closely enough for chat-side progress reporting.
+        first = True
+        async for event in stream:
+            if first:
+                first = False
+                if not isinstance(event, FunctionToolResultEvent):
+                    turn += 1
+                    await queue.put(_sse({"kind": "model_call", "turn": turn}))
+
+            if isinstance(event, FunctionToolCallEvent):
+                call_id = event.part.tool_call_id
+                if call_id in emitted_tool_ids:
+                    continue
+                emitted_tool_ids.add(call_id)
+                await queue.put(
+                    _sse(
+                        {
+                            "kind": "tool",
+                            "name": event.part.tool_name,
+                            "args_preview": _args_preview(event.part),
+                            "call_id": call_id,
+                        }
+                    )
                 )
-            )
-            return
-        if isinstance(event, FunctionToolResultEvent):
-            await queue.put(_sse({"kind": "tool_done", "call_id": event.tool_call_id}))
-            return
-        if isinstance(event, PartStartEvent) and isinstance(event.part, ToolCallPart):
-            call_id = event.part.tool_call_id
-            if call_id in emitted_tool_ids:
-                return
-            emitted_tool_ids.add(call_id)
-            await queue.put(
-                _sse(
-                    {
-                        "kind": "tool",
-                        "name": event.part.tool_name,
-                        "args_preview": _args_preview(event.part),
-                        "call_id": call_id,
-                    }
+            elif isinstance(event, FunctionToolResultEvent):
+                await queue.put(_sse({"kind": "tool_done", "call_id": event.tool_call_id}))
+            elif isinstance(event, PartStartEvent) and isinstance(event.part, ToolCallPart):
+                call_id = event.part.tool_call_id
+                if call_id in emitted_tool_ids:
+                    continue
+                emitted_tool_ids.add(call_id)
+                await queue.put(
+                    _sse(
+                        {
+                            "kind": "tool",
+                            "name": event.part.tool_name,
+                            "args_preview": _args_preview(event.part),
+                            "call_id": call_id,
+                        }
+                    )
                 )
-            )
-            return
+            # Other events (PartDeltaEvent text deltas, FinalResultEvent) are
+            # intentionally ignored: the Pipe consumes the consolidated final
+            # text via the `final` SSE frame that the producer task emits
+            # after `agent.run()` returns. Streaming text deltas through the
+            # Pipe is S6/S7 territory.
 
     async def run_agent() -> None:
-        nonlocal turn
         try:
-            async with agent.iter(prompt) as run:
-                async for node in run:
-                    # Each ModelRequestNode is one model call — handy progress
-                    # signal even though the SPEC marks this event optional.
-                    if Agent.is_model_request_node(node):
-                        turn += 1
-                        await queue.put(_sse({"kind": "model_call", "turn": turn}))
-                        async with node.stream(run.ctx) as stream:
-                            async for event in stream:
-                                await emit_event(event)
-                    elif Agent.is_call_tools_node(node):
-                        # Tool start/finish events flow here.
-                        async with node.stream(run.ctx) as stream:
-                            async for event in stream:
-                                await emit_event(event)
-                final_text = ""
-                if run.result is not None:
-                    out = run.result.output
-                    final_text = out if isinstance(out, str) else str(out)
-                await queue.put(_sse({"kind": "final", "text": final_text}))
+            result = await agent.run(
+                prompt,
+                event_stream_handler=event_stream_handler,
+            )
+            out = result.output
+            final_text = out if isinstance(out, str) else str(out)
+            await queue.put(_sse({"kind": "final", "text": final_text}))
         except Exception as exc:  # noqa: BLE001 — surface any failure once
             logger.exception("agent run failed")
             await queue.put(_sse({"kind": "error", "message": f"{type(exc).__name__}: {exc}"}))
