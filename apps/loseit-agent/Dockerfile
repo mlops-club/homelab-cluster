@@ -40,6 +40,12 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 # Version range matches what Kitaru's pydantic-ai adapter supports
 # (>=1.89,<1.104). uvicorn is bumped to >=0.35 because kitaru's MCP
 # transitive dep `fastmcp` requires it.
+# s3fs + boto3 are needed by ZenML's S3 artifact store flavor (used by the
+# `default-s3` Kitaru stack — see apps/kitaru/ops/register-artifact-store.sh
+# and apps/kitaru/ARTIFACTS.md). The Kitaru server image ships them, but the
+# `kitaru[pydantic-ai]` extra does NOT, so we add them explicitly here. The
+# version ranges match what ZenML 0.94.x supports (see
+# zenml/integrations/s3/__init__.py).
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
       "fastapi==0.115.*" \
@@ -47,6 +53,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       "httpx>=0.28,<0.29" \
       "pydantic-ai-slim[openai]>=1.89,<1.104" \
       "kitaru[pydantic-ai]==0.15.0" \
+      "s3fs>2022.3.0,!=2025.3.1" \
+      "boto3" \
       "git+https://github.com/phitoduck/lose-it@main"
 
 # ---------- runtime ----------

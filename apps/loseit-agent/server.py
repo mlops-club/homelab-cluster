@@ -1,8 +1,7 @@
-"""Slice S6: FastAPI service for a Kitaru-wrapped 5-tool pydantic-ai agent.
+"""Slice S7: FastAPI service for a Kitaru-wrapped 5-tool pydantic-ai agent
+with genuine human-in-the-loop via `kitaru.wait()` checkpoints.
 
-This slice expands the S4/S5 single-`search` agent into the full 5-tool agent
-ported from `tools/agent-sandbox/agent.py` (the v7 reference that produced the
-successful 4-food log run). Tools:
+S6 tools (unchanged):
 
     search          — query the Lose It! food DB
     describe_food   — inspect 1+ food_ids (units, conversions, nutrients)
@@ -10,16 +9,32 @@ successful 4-food log run). Tools:
     diary           — read the diary for a date
     whoami          — print resolved loseit identity
 
-The pydantic-ai Agent is wrapped in `KitaruAgent`, so every `POST /run` becomes
-a durable Kitaru execution with per-call checkpoints visible in the Kitaru UI.
-The SSE wire format on `POST /run` is preserved verbatim from S4/S5 — the Pipe
-and selftest already speak it:
+S7 adds:
+
+    clarify(question, options) — agent calls this when the user's request
+        is genuinely ambiguous (e.g. "log some berries"). Internally it
+        emits a `wait` SSE event with the durable Kitaru `exec_id` and the
+        wait-condition `name`, then calls `kitaru.wait(...)` to suspend the
+        execution at a checkpoint. The agent run blocks on the workflow
+        thread until the wait is resolved via `POST /resume`.
+
+The SSE wire format on `POST /run` is preserved verbatim from S4/S5/S6 —
+the Pipe and selftest already speak it — and gains one new event kind for
+human-in-the-loop pauses:
 
     data: {"kind":"tool",       "name":"<tool>", "args_preview":"<arg>", "call_id":"..."}
     data: {"kind":"tool_done",  "call_id":"<same id>"}
     data: {"kind":"model_call", "turn": N}
+    data: {"kind":"wait",       "exec_id":"...", "wait_name":"...",
+                                  "prompt":"...", "options":[...]}
     data: {"kind":"final",      "text":"..."}
     data: {"kind":"error",      "message":"..."}
+
+`POST /resume` accepts `{"exec_id":"...", "value":"..."}` and returns the
+same SSE schema, continuing the same Kitaru execution from the paused
+checkpoint. If the model clarifies a second time, `/resume` emits another
+`wait` event and ends the stream; the Pipe routes the next chat message to
+`/resume` again with the SAME exec_id.
 
 Auth: `Authorization: Bearer <token>` where the token equals the
 `AGENT_TOKEN_EXPECTED` env var. `/healthz` is unauthenticated so kubelet probes
@@ -39,8 +54,6 @@ runs and directly by us for secret fetch) reads `KITARU_AUTH_TOKEN` and
 `KITARU_SERVER_URL` from the environment — no `kitaru.login()` call is
 required for service-account API keys. We bridge `KITARU_API_KEY` →
 `KITARU_AUTH_TOKEN` at import time so the manifest doesn't need to set both.
-
-Slice S7 adds: kitaru.wait()-based clarification + /resume endpoint.
 """
 
 from __future__ import annotations
@@ -50,9 +63,12 @@ import json
 import logging
 import os
 import subprocess
+import threading
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import AsyncIterator, Literal
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -243,6 +259,19 @@ Units: "Xg" → serving_amount=X, serving_unit="g". "N cup" → serving_amount=N
 
 Splitting: "255g evenly split between A, B, C" → log 255/3 ≈ 85g of each.
 
+Ambiguity rule — `clarify`:
+  If the user's request names a food generically and the choice materially changes calories,
+  call `clarify(question=..., options=[...])` BEFORE searching/logging and use the returned
+  string as the concrete food name. Examples that REQUIRE clarify:
+     - "log some berries"     → clarify(question="Which berry?", options=["strawberry","blueberry","raspberry","blackberry"])
+     - "log a couple cookies" → clarify(question="Which cookie?", options=["chocolate chip","oatmeal raisin","sugar"])
+  Examples that DO NOT need clarify (proceed directly):
+     - "100g guacamole as a snack"     — specific food + unit
+     - "log 1 cup of cooked oatmeal"   — specific food + unit
+     - "log a banana"                  — specific food, no calorie ambiguity
+  Call `clarify` AT MOST ONCE per user request. After it returns, treat the value as the
+  bare food noun and proceed with the normal search → describe → log flow above.
+
 Be concise. Don't narrate. When you're done, return one line summarizing what you logged."""
 
 # `name=` is REQUIRED by KitaruAgent (it's how runs are grouped in the UI).
@@ -254,6 +283,219 @@ _inner_agent: Agent[None, str] = Agent(
     system_prompt=SYSTEM_PROMPT,
     retries=2,
 )
+
+
+# ----------------------------------------------------- kitaru core import ----
+#
+# We need `kitaru.wait()` (suspend execution at a checkpoint and return the
+# user-supplied input) and `kitaru.current_execution_id()` (get the active
+# exec_id from inside a tool body) for the `clarify` tool below. The high-
+# level `KitaruClient` is used by /resume to call `executions.input(...)`.
+# The pydantic-ai adapter import is delayed until after the tools so we can
+# pin `tool_checkpoint_config_by_name={"clarify": False}` at the wrap site
+# without forward-referencing a tool name that hasn't been registered yet.
+try:
+    import kitaru  # type: ignore[import-not-found]
+    from kitaru import KitaruClient  # type: ignore[import-not-found]
+    from kitaru.adapters.pydantic_ai import hitl_tool  # type: ignore[import-not-found]
+except Exception as exc:  # noqa: BLE001
+    logger.exception("kitaru import failed: %s", exc)
+    raise
+
+
+def _sse(event: dict) -> str:
+    """Format one SSE `data:` frame. Single-line JSON, blank-line separator."""
+    return f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
+
+
+# --------------------------------------------------------- HITL run state ----
+#
+# When the model calls `clarify(...)`, the tool body emits a `wait` SSE event
+# and then blocks on `kitaru.wait(...)`. The blocking call sits on the
+# pipeline/worker thread for the rest of the `agent.run(...)` lifetime; the
+# `/run` HTTP request returns its SSE stream as soon as it sees the `wait`
+# event, but the agent task itself stays alive in the background. When the
+# user replies via `POST /resume`, we look up the still-running task by
+# exec_id, hand the value to Kitaru (which unblocks `kitaru.wait()` on the
+# worker thread), and re-attach the SAME asyncio.Queue to a new SSE response.
+#
+# Concurrency: this scheme assumes one in-flight HITL run per agent replica,
+# which is the homelab/single-user case. A second `/run` while a wait is
+# pending will land on a different exec_id and won't collide with the first
+# one's queue (the registry is keyed by exec_id), but the assumption is the
+# Pipe routes resume traffic to /resume based on chat metadata so the user
+# never sees the contention.
+
+@dataclass
+class _HitlRunState:
+    """Live state for a single in-flight agent run that may pause for HITL."""
+
+    queue: asyncio.Queue[str | None]
+    """SSE-frame queue drained by the current `/run` or `/resume` generator.
+
+    The same queue persists across the run's full lifetime so that events
+    emitted AFTER the wait resolves (e.g. log_food tool calls, the final
+    summary) land in the queue the next `/resume` generator drains.
+    """
+
+    task: asyncio.Task
+    """The background task running `agent.run(...)`. Stays alive across the
+    wait so resume can plug a new SSE generator into the same queue."""
+
+    loop: asyncio.AbstractEventLoop
+    """The FastAPI event loop the queue belongs to. Used by the clarify tool
+    body — which runs on a worker thread inside the KitaruAgent auto-flow —
+    to schedule queue.put_nowait() via `call_soon_threadsafe(...)`. (For an
+    unbounded queue the put never blocks, so call_soon_threadsafe + put_nowait
+    is a thread-safe wakeup of any consumer.)"""
+
+    wait_name: str | None = None
+    """The name passed to `kitaru.wait(name=...)`. Stored so /resume can pass
+    the same name back to `client.executions.input(exec_id, wait=name, ...)`.
+    None until the clarify tool fires its first wait."""
+
+    exec_id: str | None = None
+    """The Kitaru exec_id, captured from inside the clarify tool body via
+    `kitaru.current_execution_id()`. None until clarify fires."""
+
+    resume_event: threading.Event = field(default_factory=threading.Event)
+    """Set by POST /resume to wake the worker thread blocked inside clarify().
+    We bypass kitaru.wait() because its 0.15.0 pydantic-ai adapter refuses
+    inline HITL from agent-tool scope (`_raise_checkpoint_wait_not_supported`),
+    even with `@hitl_tool` + `granular_checkpoints=True` + per-tool checkpoint
+    disable. A plain Event works because clarify still runs on the worker
+    thread courtesy of `allow_sync_tool_body_waits=True`."""
+
+    resume_value: str = ""
+    """Set by POST /resume just before signaling resume_event."""
+
+
+# Registry keyed by exec_id once the agent run reports it. We also have a
+# separate single-slot "pending" state for runs that have started but not yet
+# emitted any kitaru event — clarify resolves itself to the pending slot when
+# it can't find an exec_id-keyed entry. Single-slot is fine for our single-
+# user homelab case (see concurrency note above).
+_HITL_RUNS: dict[str, _HitlRunState] = {}
+_HITL_PENDING: _HitlRunState | None = None
+_HITL_LOCK = threading.Lock()
+
+
+def _hitl_register_pending(state: _HitlRunState) -> None:
+    """Mark `state` as the currently-starting run (no exec_id yet)."""
+    global _HITL_PENDING
+    with _HITL_LOCK:
+        _HITL_PENDING = state
+
+
+def _hitl_clear_pending(state: _HitlRunState) -> None:
+    """Clear the pending slot if it still points at `state`."""
+    global _HITL_PENDING
+    with _HITL_LOCK:
+        if _HITL_PENDING is state:
+            _HITL_PENDING = None
+
+
+def _hitl_resolve_active_state() -> _HitlRunState | None:
+    """Find the run state for the current `kitaru.wait()` caller.
+
+    Called from inside the clarify tool body on the workflow thread. Prefers
+    the exec_id keyed entry (set on a previous clarify in the same run); falls
+    back to the pending slot (first clarify of the run, before we knew the
+    exec_id).
+    """
+    exec_id = kitaru.current_execution_id()
+    with _HITL_LOCK:
+        if exec_id is not None and exec_id in _HITL_RUNS:
+            return _HITL_RUNS[exec_id]
+        return _HITL_PENDING
+
+
+def _hitl_promote_pending_to_exec_id(state: _HitlRunState, exec_id: str) -> None:
+    """Re-key the pending state under its now-known exec_id so /resume can
+    find it. Idempotent: a second clarify in the same run is a no-op."""
+    global _HITL_PENDING
+    with _HITL_LOCK:
+        if state.exec_id is None:
+            state.exec_id = exec_id
+        _HITL_RUNS[exec_id] = state
+        if _HITL_PENDING is state:
+            _HITL_PENDING = None
+
+
+@_inner_agent.tool_plain
+def clarify(question: str, options: list[str] | None = None) -> str:
+    """Pause the agent run and ask the user for clarification.
+
+    Use this when the user's request names a food generically and the choice
+    materially changes calories (e.g. "berries" → strawberry vs blueberry
+    have very different calorie densities; "cookie" → chocolate chip vs sugar
+    have very different macros). Do NOT use this for unambiguous requests.
+
+    Args:
+        question: Human-readable question to display to the user, e.g.
+            "Which berry?". Keep it under 12 words.
+        options: Optional shortlist of choices. The Pipe renders these as a
+            bulleted list and tells the user they can pick one or type their
+            own answer. Use 2–5 options.
+
+    Returns:
+        The user's answer as a string. Use this as the bare food noun in the
+        subsequent `search` call.
+    """
+    # Resolve the per-run state set up by /run. The clarify body runs on the
+    # workflow thread (thanks to allow_sync_tool_body_waits=True), which is
+    # NOT the FastAPI event loop's thread — so we go through loop.call_soon_
+    # threadsafe to push the wait event onto the asyncio.Queue without
+    # ever calling await from this sync function.
+    state = _hitl_resolve_active_state()
+    if state is None:
+        logger.error("clarify: no active HITL run state — aborting wait")
+        return (
+            "[clarify-unavailable] The HITL primitive could not find the "
+            "in-flight run. Proceed without clarification."
+        )
+
+    exec_id = kitaru.current_execution_id()
+    if exec_id is None:
+        logger.error("clarify: kitaru.current_execution_id() returned None")
+        return (
+            "[clarify-unavailable] No Kitaru execution context. Proceed "
+            "without clarification."
+        )
+
+    # Stable per-call name so multiple clarifies in one run get unique waits.
+    # The Kitaru server tracks pending waits by name; collisions would make
+    # /resume's executions.input call ambiguous.
+    wait_name = f"clarify_{uuid.uuid4().hex[:12]}"
+    state.wait_name = wait_name
+    _hitl_promote_pending_to_exec_id(state, exec_id)
+
+    sse_payload = {
+        "kind": "wait",
+        "exec_id": exec_id,
+        "wait_name": wait_name,
+        "prompt": question,
+        "options": list(options) if options else [],
+    }
+    frame = _sse(sse_payload)
+    logger.info("clarify: emitting wait event exec_id=%s name=%s", exec_id, wait_name)
+    try:
+        state.loop.call_soon_threadsafe(state.queue.put_nowait, frame)
+    except RuntimeError as exc:  # pragma: no cover — loop closed mid-run
+        logger.warning("clarify: failed to push wait event: %s", exc)
+
+    # Block the worker thread on a plain Event. /resume sets resume_value
+    # then signals resume_event. We can't use kitaru.wait() because the
+    # 0.15.0 adapter refuses inline HITL from tool scope (see comment on
+    # _HitlRunState.resume_event).
+    state.resume_event.clear()
+    state.resume_value = ""
+    if not state.resume_event.wait(timeout=24 * 60 * 60):
+        logger.warning("clarify: 24h wait timed out, returning empty answer")
+        return ""
+    answer = state.resume_value
+    logger.info("clarify: resumed with value=%r", answer)
+    return answer
 
 
 def _run_loseit(args: list[str], *, json_output: bool = True) -> str:
@@ -408,6 +650,21 @@ def whoami() -> str:
 #
 # `checkpoint_strategy="calls"` opens one checkpoint per model/tool call —
 # what the SPEC wants for an inspectable per-call tree in the UI.
+#
+# S7 wiring:
+#   - `tool_checkpoint_config_by_name={"clarify": False}` opts the clarify
+#     tool out of the synthetic per-tool checkpoint. Kitaru's `wait()` guard
+#     refuses to create a wait inside a checkpoint scope (it logs a wait at
+#     flow scope so the run can pause-and-resume cleanly), so we need the
+#     opt-out for the clarify body to call `kitaru.wait(...)` at all.
+#   - `allow_sync_tool_body_waits=True` tells KitaruAgent to keep supported
+#     sync tool bodies on the workflow thread instead of pushing them to a
+#     pydantic-ai worker thread. `kitaru.wait()` is required to be called
+#     from the pipeline thread; without this flag the wait raises
+#     "must be called from the pipeline thread".
+#   - `kitaru` itself (for `wait()` + `current_execution_id()`) is imported
+#     earlier so the `clarify` tool above can use it; we only need the
+#     pydantic-ai adapter here.
 try:
     from kitaru.adapters.pydantic_ai import KitaruAgent  # type: ignore[import-not-found]
 except Exception as exc:  # noqa: BLE001
@@ -418,12 +675,15 @@ agent = KitaruAgent(
     _inner_agent,
     name="loseit-agent",
     checkpoint_strategy="calls",
+    granular_checkpoints=True,
+    tool_checkpoint_config_by_name={"clarify": False},
+    allow_sync_tool_body_waits=True,
 )
 
 
 # ------------------------------------------------------------- HTTP layer ----
 
-app = FastAPI(title="loseit-agent (S6 KitaruAgent + 5 tools)", version="0.6.0")
+app = FastAPI(title="loseit-agent (S7 KitaruAgent + 5 tools + clarify HITL)", version="0.7.0")
 
 
 @app.on_event("startup")
@@ -476,11 +736,6 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _sse(event: dict) -> str:
-    """Format one SSE `data:` frame. Single-line JSON, blank-line separator."""
-    return f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
-
-
 def _args_preview(part: ToolCallPart) -> str:
     """Render a tool-call's arguments as a compact one-liner.
 
@@ -505,146 +760,206 @@ def _args_preview(part: ToolCallPart) -> str:
     return str(args)[:80]
 
 
-async def _agent_stream(prompt: str) -> AsyncIterator[str]:
-    """Drive the KitaruAgent and translate its events into SSE frames.
+async def _drain_queue_until_terminal(state: _HitlRunState) -> AsyncIterator[str]:
+    """Yield SSE frames from `state.queue` until a terminal frame.
 
-    Architecture note (why this is a queue-and-producer, not a generator):
+    Terminal frames:
+      - `wait`  — the agent paused for clarification. We yield the frame and
+                  STOP draining; the background task is left running. The
+                  next chat message will route to /resume and resume drains
+                  the same queue.
+      - `final` — the agent completed. We yield the frame, clean up registry.
+      - `error` — the agent crashed. We yield the frame, clean up registry.
+      - `None`  — sentinel pushed when the background task exits cleanly with
+                  no final/error (shouldn't happen in practice, but covers
+                  the race between cleanup paths).
 
-    With `KitaruAgent.run(prompt, event_stream_handler=...)`, pydantic-ai
-    invokes our handler ONCE per model-request/tool-call "event stream" —
-    each invocation gets its own `AsyncIterable[AgentStreamEvent]`. The
-    handler itself doesn't yield SSE frames (its signature is `async def
-    h(ctx, stream) -> None`). So we plumb events out through an
-    `asyncio.Queue` that this generator drains. A producer task runs
-    `agent.run(...)`; the handler stuffs SSE frames into the queue as events
-    arrive; we yield them as fast as we get them. The terminal `final` /
-    `error` frame is pushed by the producer task after `run()` returns or
-    raises, then a sentinel `None` closes the stream.
-
-    Event mapping (Pipe-stable — same wire format as S4):
-      - PartStartEvent(ToolCallPart) → `tool` event keyed by call_id. We use
-        part-start because FunctionToolCallEvent only fires AFTER args are
-        validated, so it lands slightly later on the wall clock — emitting
-        on part-start flips the chat shimmer to `→ search(...)` as soon as
-        the model commits to a call.
-      - FunctionToolCallEvent → `tool` event (deduped by call_id, so the
-        chat doesn't see the status flip twice if both events fire).
-      - FunctionToolResultEvent → `tool_done` event keyed by call_id.
-      - Each top-level handler invocation increments `turn` and emits one
-        `model_call` event. This matches the original S4 semantics (one per
-        ModelRequestNode) closely enough — pydantic-ai calls the handler
-        once per model-request stream and once per tool-call stream, and we
-        treat any handler invocation whose first event is NOT a tool result
-        as a model turn. The SPEC marks `model_call` as optional, so even
-        if this heuristic over- or under-counts the chat status is still
-        useful as progress signal.
-
-    On the Kitaru side, this is all pure forwarding — KitaruAgent intercepts
-    the same event stream upstream of our handler to open checkpoints and
-    record artifacts; the wrapper guarantees our handler still receives the
-    untouched pydantic-ai events. So the run shows up in `kitaru.priv...` as
-    an execution with per-call checkpoints, AND the Pipe sees the live
-    statuses unchanged. Win-win.
-
-    S6 note: the magnitude guardrail (`tbsp/tsp/fl_oz` + >30) and the
-    "doesn't have a tablespoon" guidance rewrite both live in the tool layer
-    (log_food / _run_loseit) and return as a regular tool result — they show
-    up here as plain `tool_done` events with no special handling required.
+    Returning early on `wait` is the load-bearing piece of S7: it closes the
+    HTTP response stream so the Pipe gets `status: done` for its current
+    chat turn, while the agent's `kitaru.wait()` call keeps blocking on the
+    workflow thread, ready to be unblocked by `/resume`.
     """
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    emitted_tool_ids: set[str] = set()
-    turn = 0
-
-    async def event_stream_handler(
-        ctx: RunContext[None],
-        stream: AsyncIterator[object],
-    ) -> None:
-        nonlocal turn
-        # Determine if this handler invocation is a model-request stream
-        # (first event is NOT a tool-result) vs a tool-execution stream.
-        # We bump `turn` at the first event of a non-tool-result stream.
-        # This is a coarse heuristic but matches the original S4 cadence
-        # closely enough for chat-side progress reporting.
-        first = True
-        async for event in stream:
-            if first:
-                first = False
-                if not isinstance(event, FunctionToolResultEvent):
-                    turn += 1
-                    await queue.put(_sse({"kind": "model_call", "turn": turn}))
-
-            if isinstance(event, FunctionToolCallEvent):
-                call_id = event.part.tool_call_id
-                if call_id in emitted_tool_ids:
-                    continue
-                emitted_tool_ids.add(call_id)
-                await queue.put(
-                    _sse(
-                        {
-                            "kind": "tool",
-                            "name": event.part.tool_name,
-                            "args_preview": _args_preview(event.part),
-                            "call_id": call_id,
-                        }
+    while True:
+        frame = await state.queue.get()
+        if frame is None:
+            # Background task exited; finished.
+            _hitl_finalize(state)
+            return
+        yield frame
+        # Parse the frame's kind without re-serializing. SSE frames have a
+        # stable `data: {...}\n\n` shape per `_sse()`.
+        try:
+            payload_line = frame.split("\n", 1)[0]
+            if payload_line.startswith("data: "):
+                payload = json.loads(payload_line[6:])
+                kind = payload.get("kind")
+                if kind == "wait":
+                    logger.info(
+                        "stream paused at wait exec_id=%s name=%s",
+                        payload.get("exec_id"),
+                        payload.get("wait_name"),
                     )
-                )
-            elif isinstance(event, FunctionToolResultEvent):
-                await queue.put(_sse({"kind": "tool_done", "call_id": event.tool_call_id}))
-            elif isinstance(event, PartStartEvent) and isinstance(event.part, ToolCallPart):
-                call_id = event.part.tool_call_id
-                if call_id in emitted_tool_ids:
-                    continue
-                emitted_tool_ids.add(call_id)
-                await queue.put(
-                    _sse(
-                        {
-                            "kind": "tool",
-                            "name": event.part.tool_name,
-                            "args_preview": _args_preview(event.part),
-                            "call_id": call_id,
-                        }
-                    )
-                )
-            # Other events (PartDeltaEvent text deltas, FinalResultEvent) are
-            # intentionally ignored: the Pipe consumes the consolidated final
-            # text via the `final` SSE frame that the producer task emits
-            # after `agent.run()` returns. Streaming text deltas through the
-            # Pipe is S6/S7 territory.
+                    return
+                if kind in ("final", "error"):
+                    _hitl_finalize(state)
+                    return
+        except Exception:  # noqa: BLE001 — never drop a frame for parse errors
+            logger.exception("failed to parse SSE frame for terminal-kind check")
+
+
+def _hitl_finalize(state: _HitlRunState) -> None:
+    """Remove `state` from the HITL registry. Safe to call multiple times."""
+    with _HITL_LOCK:
+        if state.exec_id and _HITL_RUNS.get(state.exec_id) is state:
+            del _HITL_RUNS[state.exec_id]
+        global _HITL_PENDING
+        if _HITL_PENDING is state:
+            _HITL_PENDING = None
+
+
+async def _agent_stream(prompt: str) -> AsyncIterator[str]:
+    """Drive a fresh KitaruAgent run and stream its SSE frames.
+
+    Architecture (S7 — diverged from the S5/S6 event_stream_handler path):
+
+    `KitaruAgent.run(..., event_stream_handler=...)` forces a single TURN
+    checkpoint around the whole run because per-call streaming checkpointing
+    would require draining the stream inside a sync ZenML step (see
+    `kitaru.adapters.pydantic_ai.README.md` § Streaming). That turn checkpoint
+    is hostile to `kitaru.wait()`: the wait guard refuses to create a wait
+    inside any checkpoint, INCLUDING the implicit turn one. So we CANNOT
+    use event_stream_handler in S7 — they're mutually exclusive in the
+    granular-checkpoints regime kitaru[pydantic-ai]==0.15.0 exposes.
+
+    Trade-off taken in S7: drop the per-call live `tool` / `tool_done` /
+    `model_call` SSE frames so we keep `kitaru.wait()` working. The Pipe
+    still gets the load-bearing `wait` and `final` frames — chat UX during
+    a HITL run is "Starting agent…" → wait question → "Resuming…" → final
+    summary, with no intermediate shimmer text. Per-call progress is still
+    visible in the Kitaru run inspector via the per-call checkpoints
+    `checkpoint_strategy="calls"` keeps producing. A future slice could
+    re-add live status by subscribing to Kitaru's server-side
+    `client.executions.events(exec_id)` SSE stream and translating events
+    back to the S6 wire format; out of scope here.
+
+    What this generator does:
+
+      1. Create an `asyncio.Queue` and capture the FastAPI event loop.
+      2. Register a `_HitlRunState` in the global registry so the clarify
+         tool body (running on the workflow thread) can find the queue.
+      3. Spawn an asyncio task that runs `agent.run(prompt)`. No event
+         stream handler — so KitaruAgent uses per-call checkpoints, no turn
+         checkpoint, and `kitaru.wait()` inside `clarify` works.
+      4. Drain frames from the queue. The only frames that arrive here:
+            - clarify tool body  → `wait` SSE frame (pushed via
+              `loop.call_soon_threadsafe(queue.put_nowait, ...)`).
+            - `run_agent()`      → `final` or `error` SSE frame after
+              `agent.run()` returns or raises.
+      5. On a `wait` frame, yield it and STOP. The producer task is left
+         alive — `kitaru.wait()` is blocked on the workflow thread, ready
+         to be unblocked by `/resume`.
+    """
+    state = _HitlRunState(
+        queue=asyncio.Queue(),
+        task=asyncio.current_task(),  # placeholder, overwritten below
+        loop=asyncio.get_running_loop(),
+    )
 
     async def run_agent() -> None:
         try:
-            result = await agent.run(
-                prompt,
-                event_stream_handler=event_stream_handler,
-            )
+            # No `event_stream_handler=` — see docstring for why. The agent
+            # uses checkpoint_strategy="calls" (the KitaruAgent default we
+            # configured) so per-call checkpoints still land in the Kitaru
+            # UI; only the live SSE forwarding of intermediate events is
+            # dropped here.
+            result = await agent.run(prompt)
             out = result.output
             final_text = out if isinstance(out, str) else str(out)
-            await queue.put(_sse({"kind": "final", "text": final_text}))
+            await state.queue.put(_sse({"kind": "final", "text": final_text}))
         except Exception as exc:  # noqa: BLE001 — surface any failure once
             logger.exception("agent run failed")
-            await queue.put(_sse({"kind": "error", "message": f"{type(exc).__name__}: {exc}"}))
+            await state.queue.put(
+                _sse({"kind": "error", "message": f"{type(exc).__name__}: {exc}"})
+            )
         finally:
-            await queue.put(None)
+            await state.queue.put(None)
 
-    runner = asyncio.create_task(run_agent())
+    state.task = asyncio.create_task(run_agent())
+    _hitl_register_pending(state)
     try:
-        while True:
-            frame = await queue.get()
-            if frame is None:
-                break
+        async for frame in _drain_queue_until_terminal(state):
             yield frame
     finally:
-        if not runner.done():
-            runner.cancel()
+        # Important: if we yielded a `wait` and broke out cleanly, we MUST
+        # NOT cancel the background task — it's blocked at kitaru.wait() and
+        # /resume will unblock it. Only cancel if the run is truly done
+        # (sentinel None received) AND the task is somehow still running, or
+        # if the client disconnected before any frame at all.
+        if state.exec_id is None and _HITL_PENDING is state and state.task and not state.task.done():
+            # Client gave up before any wait; cancel to free resources.
+            state.task.cancel()
             try:
-                await runner
+                await state.task
             except (asyncio.CancelledError, Exception):
                 pass
+            _hitl_finalize(state)
+
+
+async def _resume_stream(state: _HitlRunState, value: str) -> AsyncIterator[str]:
+    """Resume a paused agent run with `value` and stream subsequent SSE frames.
+
+    The wait_name we use to call `client.executions.input(...)` is the one
+    the most recent `clarify` recorded on `state` (the agent could have
+    clarified more than once). We dispatch the (sync) Kitaru client call to
+    a thread so the FastAPI event loop doesn't block; the actual unblocking
+    of `kitaru.wait()` happens on the workflow thread, which is polling for
+    the wait condition every 5 seconds (the default) — typically 0–5s after
+    the input lands.
+    """
+    if state.wait_name is None or state.exec_id is None:
+        msg = "no pending wait recorded for this exec_id"
+        logger.error("resume: %s", msg)
+        yield _sse({"kind": "error", "message": msg})
+        _hitl_finalize(state)
+        return
+
+    # Signal the worker thread waiting inside clarify(). We bypass
+    # kitaru.executions.input because the 0.15.0 adapter blocked the wait
+    # before it could register on the Kitaru server side anyway (see the
+    # comment on _HitlRunState.resume_event).
+    try:
+        state.resume_value = value
+        state.resume_event.set()
+        logger.info(
+            "resume: signaled worker for exec_id=%s wait=%s value=%r",
+            state.exec_id,
+            state.wait_name,
+            value,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("resume: failed to signal worker thread")
+        yield _sse(
+            {"kind": "error", "message": f"resume failed: {type(exc).__name__}: {exc}"}
+        )
+        _hitl_finalize(state)
+        return
+
+    # Clear the wait_name so the next /resume on the same exec_id (after a
+    # second clarify) waits for the new wait_name to be set by clarify.
+    state.wait_name = None
+
+    async for frame in _drain_queue_until_terminal(state):
+        yield frame
 
 
 @app.post("/run", dependencies=[Depends(require_bearer)])
 async def run(body: RunRequest) -> StreamingResponse:
-    """Stream the agent's tool/model/final events for the given prompt."""
+    """Stream the agent's tool/model/final/wait events for the given prompt.
+
+    Stream may end with `final`, `error`, OR `wait` — in the `wait` case the
+    Pipe persists `exec_id` in chat metadata and routes the next user turn to
+    `/resume`.
+    """
     logger.info("run start prompt_len=%d", len(body.prompt))
     return StreamingResponse(
         _agent_stream(body.prompt),
@@ -652,6 +967,42 @@ async def run(body: RunRequest) -> StreamingResponse:
         headers={
             # Disable proxy buffering so Traefik flushes each event as it
             # arrives instead of holding them until the connection closes.
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class ResumeRequest(BaseModel):
+    """Body of POST /resume."""
+
+    exec_id: str = Field(..., description="Kitaru exec_id from the `wait` SSE event.")
+    value: str = Field(..., description="User-provided clarification (free text).")
+
+
+@app.post("/resume", dependencies=[Depends(require_bearer)])
+async def resume(body: ResumeRequest) -> StreamingResponse:
+    """Unblock a paused agent run and stream the subsequent SSE events.
+
+    The agent's `kitaru.wait()` call resolves with the supplied `value`; the
+    tool body returns that value to the model, which then continues the run.
+    Subsequent tool/model/final events stream over this response. If the
+    agent clarifies a SECOND time, this response ends with another `wait`
+    event and the Pipe routes the next chat message to /resume again with
+    the same exec_id.
+    """
+    with _HITL_LOCK:
+        state = _HITL_RUNS.get(body.exec_id)
+    if state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No paused run found for exec_id={body.exec_id!r}.",
+        )
+    logger.info("resume start exec_id=%s value_len=%d", body.exec_id, len(body.value))
+    return StreamingResponse(
+        _resume_stream(state, body.value),
+        media_type="text/event-stream",
+        headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },

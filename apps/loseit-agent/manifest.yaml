@@ -81,6 +81,17 @@ spec:
             # MUST be a UUID, not a name — the SDK errors on non-UUID values.
             - name: KITARU_PROJECT
               value: "02702c00-0cc6-4551-8964-64fde34ed99b"
+            # Pin the agent to the `default-s3` stack so artifacts/logs land
+            # in MinIO instead of the pod's emptyDir. The active-stack
+            # selection is per-user/per-PAT in Kitaru; without this env var
+            # the agent's service-account session falls through to the
+            # `default` (local) stack and the Kitaru UI's log fetch breaks
+            # again with "Files in a local artifact store cannot be accessed
+            # from the server." See apps/kitaru/ARTIFACTS.md for the full
+            # storage model. Stack UUID resolved via:
+            #   uvx --from "kitaru[local]" kitaru stack list
+            - name: ZENML_ACTIVE_STACK_ID
+              value: "9f2835ba-5093-48e0-8e04-baa3061f238d"
             - name: OLLAMA_BASE_URL
               value: "http://ollama.ollama.svc.cluster.local:11434/v1"
             - name: OLLAMA_MODEL
