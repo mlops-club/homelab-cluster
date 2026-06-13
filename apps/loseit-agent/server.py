@@ -1,4 +1,4 @@
-"""Slice S4: FastAPI service fronting a real pydantic-ai agent with ONE tool.
+"""Slice S4 (+ Kitaru-secrets migration): FastAPI service for a pydantic-ai agent.
 
 The agent drives the `loseit` CLI via a single `search` tool, backed by qwen3:8b
 on the homelab Ollama. The SSE wire format on `POST /run` is preserved verbatim
@@ -15,9 +15,13 @@ Auth: `Authorization: Bearer <token>` where the token equals the
 `AGENT_TOKEN_EXPECTED` env var. `/healthz` is unauthenticated so kubelet probes
 work without a token.
 
-Loseit token: at startup the contents of `$LOSEIT_TOKEN` (a JWT mounted from
-the `loseit-token` K8s Secret) are written to `/home/agent/.config/loseit/token`
-(chmod 600) — the default path the lose-it CLI reads.
+Loseit credentials: at startup we fetch the `loseit-token` secret from Kitaru's
+centralized secrets store (its API at $KITARU_SERVER_URL, authenticated via
+$KITARU_API_KEY). The secret carries four keys — `token`, `user_id`,
+`user_name`, `hours_from_gmt`. The JWT is written to ~/.config/loseit/token
+(chmod 600) and the identity fields are exported as `LOSEIT_*` env vars so the
+lose-it CLI's pydantic-settings loader picks them up automatically. No K8s
+Secret for the loseit JWT — per SPEC §"Agent ↔ Lose It!".
 
 Slices S5-S7 add: KitaruAgent wrapping (S5), 4 more tools (S6), wait/resume (S7).
 """
@@ -33,6 +37,7 @@ import uuid
 from pathlib import Path
 from typing import AsyncIterator
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -56,25 +61,77 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
 LOSEIT_BIN = os.environ.get("LOSEIT_BIN", "loseit")
 LOSEIT_TOKEN_PATH = Path(os.environ.get("LOSEIT_TOKEN_PATH", "/home/agent/.config/loseit/token"))
 
+KITARU_SERVER_URL = os.environ.get("KITARU_SERVER_URL", "")
+KITARU_API_KEY = os.environ.get("KITARU_API_KEY", "")
+KITARU_LOSEIT_SECRET_NAME = os.environ.get("KITARU_LOSEIT_SECRET_NAME", "loseit-token")
+
 
 # ------------------------------------------------------------------ startup --
 
-def _materialize_loseit_token() -> None:
-    """Write the JWT from `$LOSEIT_TOKEN` to the CLI's default token path.
+def _fetch_loseit_creds_from_kitaru() -> None:
+    """Fetch the `loseit-token` secret from Kitaru and materialize CLI creds.
 
-    The lose-it CLI reads `~/.config/loseit/token` by default. K8s mounts the
-    JWT as the env var `LOSEIT_TOKEN` (sourced from the `loseit-token` Secret).
-    We fail loudly if the var is unset — the agent's only useful tool is search
-    against the user's account, so booting without credentials is a config bug.
+    The Kitaru secret holds four assignments: `token`, `user_id`, `user_name`,
+    `hours_from_gmt`. We write the JWT to ~/.config/loseit/token (chmod 600)
+    and set the three identity values as `LOSEIT_*` env vars so the lose-it
+    CLI's pydantic-settings loader picks them up.
+
+    On failure we log clearly and leave the file/env unset. The agent will
+    still boot — only `search` calls will fail until the credentials are
+    fixed, and the SSE `error` event surfaces that in chat.
     """
-    raw = os.environ.get("LOSEIT_TOKEN", "")
-    if not raw:
-        logger.error("LOSEIT_TOKEN env var is empty; loseit search will fail")
+    if not KITARU_SERVER_URL or not KITARU_API_KEY:
+        logger.error(
+            "Kitaru creds env vars missing (KITARU_SERVER_URL/KITARU_API_KEY); "
+            "skipping loseit secret fetch"
+        )
+        return
+
+    base = KITARU_SERVER_URL.rstrip("/")
+    headers = {"Authorization": f"Bearer {KITARU_API_KEY}"}
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            # Resolve secret-name → secret-id.
+            r = client.get(
+                f"{base}/api/v1/secrets",
+                params={"name": KITARU_LOSEIT_SECRET_NAME, "hydrate": "false"},
+                headers=headers,
+            )
+            r.raise_for_status()
+            items = r.json().get("items", [])
+            if not items:
+                logger.error("Kitaru secret %r not found", KITARU_LOSEIT_SECRET_NAME)
+                return
+            secret_id = items[0]["id"]
+
+            # Hydrate the secret to get its values.
+            r = client.get(
+                f"{base}/api/v1/secrets/{secret_id}",
+                params={"hydrate": "true"},
+                headers=headers,
+            )
+            r.raise_for_status()
+            values: dict[str, str] = r.json().get("body", {}).get("values", {}) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Kitaru fetch for %r failed: %s", KITARU_LOSEIT_SECRET_NAME, exc)
+        return
+
+    token = values.get("token", "")
+    if not token:
+        logger.error("Kitaru secret %r has no `token` key", KITARU_LOSEIT_SECRET_NAME)
         return
     LOSEIT_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LOSEIT_TOKEN_PATH.write_text(raw)
+    LOSEIT_TOKEN_PATH.write_text(token)
     LOSEIT_TOKEN_PATH.chmod(0o600)
-    logger.info("loseit-token: materialized %d bytes to %s", len(raw), LOSEIT_TOKEN_PATH)
+    logger.info(
+        "loseit-token: fetched from Kitaru, %d bytes → %s", len(token), LOSEIT_TOKEN_PATH
+    )
+
+    # Expose the rest as env vars consumed by lose-it's pydantic-settings loader.
+    for key in ("user_id", "user_name", "hours_from_gmt"):
+        if key in values:
+            os.environ[f"LOSEIT_{key.upper()}"] = str(values[key])
+            logger.info("loseit env: LOSEIT_%s set", key.upper())
 
 
 # ------------------------------------------------------------------ agent ----
@@ -133,7 +190,7 @@ app = FastAPI(title="loseit-agent (S4 pydantic-ai + search)", version="0.4.0")
 
 @app.on_event("startup")
 async def _on_startup() -> None:
-    _materialize_loseit_token()
+    _fetch_loseit_creds_from_kitaru()
     logger.info("agent ready: model=%s endpoint=%s", OLLAMA_MODEL, OLLAMA_BASE_URL)
 
 

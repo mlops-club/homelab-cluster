@@ -11,11 +11,12 @@
 #                  subsequent deploys (would invalidate Pipe config from S3).
 #                  Mounted as the AGENT_TOKEN_EXPECTED env var so the server
 #                  rejects requests without a matching bearer.
-#   - loseit-token: opaque secret with key `token` (the operator's Lose It! JWT).
-#                  Created out-of-band by the orchestrator (in S4 spec this
-#                  later moves to Kitaru's secret store; for now it's a plain
-#                  K8s Secret). Mounted as $LOSEIT_TOKEN; server.py materializes
-#                  it to /home/agent/.config/loseit/token at startup.
+#   - kitaru-api-key: opaque secret with keys `api_key` + `server_url`. Created
+#                  by apps/kitaru/ops/bootstrap.sh after the operator does a
+#                  one-time Kitaru login. The agent uses these at startup to
+#                  fetch the loseit-token secret from Kitaru's centralized
+#                  secrets store. NO K8s Secret holds the loseit JWT — per
+#                  SPEC §"Agent ↔ Lose It!".
 #
 # Volumes:
 #   - /home/agent is an emptyDir so the agent can chmod-write its loseit
@@ -62,34 +63,18 @@ spec:
                 secretKeyRef:
                   name: agent-token
                   key: token
-            - name: LOSEIT_TOKEN
+            # Kitaru centralized secret store: the agent uses these to fetch
+            # the loseit-token secret on startup. No loseit JWT lives in K8s.
+            - name: KITARU_SERVER_URL
               valueFrom:
                 secretKeyRef:
-                  name: loseit-token
-                  key: token
-            # The lose-it CLI also needs user identity to call the API. These
-            # come from the same Secret (orchestrator-populated). They're
-            # optional here so the deployment keeps rolling out even if the
-            # orchestrator hasn't yet added them — the agent still boots and
-            # the startup code logs a clear warning.
-            - name: LOSEIT_USER_ID
+                  name: kitaru-api-key
+                  key: server_url
+            - name: KITARU_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: loseit-token
-                  key: user_id
-                  optional: true
-            - name: LOSEIT_USER_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: loseit-token
-                  key: user_name
-                  optional: true
-            - name: LOSEIT_HOURS_FROM_GMT
-              valueFrom:
-                secretKeyRef:
-                  name: loseit-token
-                  key: hours_from_gmt
-                  optional: true
+                  name: kitaru-api-key
+                  key: api_key
             - name: OLLAMA_BASE_URL
               value: "http://ollama.ollama.svc.cluster.local:11434/v1"
             - name: OLLAMA_MODEL
