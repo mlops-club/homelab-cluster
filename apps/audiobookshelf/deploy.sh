@@ -44,7 +44,7 @@ spec:
       containers:
       - name: mk
         image: busybox
-        command: ["sh", "-c", "mkdir -p /mnt/media/audiobooks /mnt/media/podcasts /mnt/media/non-audio-books/Books"]
+        command: ["sh", "-c", "mkdir -p /mnt/media/audiobooks /mnt/media/podcasts /mnt/media/ebooks/Books"]
         volumeMounts:
         - name: nfs
           mountPath: /mnt

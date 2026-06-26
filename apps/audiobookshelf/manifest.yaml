@@ -67,11 +67,11 @@ spec:
     requests:
       storage: 100Gi
 ---
-# Static PV — ebooks (non-audio books library)
+# Static PV — ebooks library
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: audiobookshelf-non-audio-books
+  name: audiobookshelf-ebooks
 spec:
   capacity:
     storage: 100Gi
@@ -80,21 +80,21 @@ spec:
   storageClassName: ""
   csi:
     driver: nfs.csi.k8s.io
-    volumeHandle: audiobookshelf-non-audio-books
+    volumeHandle: audiobookshelf-ebooks
     volumeAttributes:
       server: "100.117.142.58"
-      share: "/volume1/k8s-homelab/media/non-audio-books"
+      share: "/volume1/k8s-homelab/media/ebooks"
   mountOptions: [nfsvers=3, nolock]
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: non-audio-books
+  name: ebooks
   namespace: audiobookshelf
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: ""
-  volumeName: audiobookshelf-non-audio-books
+  volumeName: audiobookshelf-ebooks
   resources:
     requests:
       storage: 100Gi
@@ -156,8 +156,8 @@ spec:
           mountPath: /audiobooks
         - name: podcasts
           mountPath: /podcasts
-        - name: non-audio-books
-          mountPath: /non-audio-books
+        - name: ebooks
+          mountPath: /ebooks
       volumes:
       - name: config
         persistentVolumeClaim:
@@ -171,9 +171,9 @@ spec:
       - name: podcasts
         persistentVolumeClaim:
           claimName: podcasts
-      - name: non-audio-books
+      - name: ebooks
         persistentVolumeClaim:
-          claimName: non-audio-books
+          claimName: ebooks
 ---
 apiVersion: v1
 kind: Service
