@@ -51,3 +51,21 @@ hooks = [
     "feat", "fix", "refactor", "docs", "test", "ci", "chore", "build", "perf",
   ] },
 ]
+
+
+# Offline K8s manifest schema validation. Catches API/field typos without a live
+# cluster — the cluster API is the only thing `kubectl --dry-run` can lean on
+# for schema, so it's useless when the cluster is unreachable. Scoped to the
+# manifest paths to avoid scanning Helm values / Ansible vars.
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "kubeconform",
+    name = "Validate K8s manifests with kubeconform",
+    entry = "kubeconform -strict -summary -ignore-missing-schemas",
+    language = "system",
+    files = "^(apps|storage|network/private|network/public)/.*\\.ya?ml$",
+    exclude = "^.*/(values|kustomization)\\.ya?ml$",
+    priority = 0,
+  },
+]
