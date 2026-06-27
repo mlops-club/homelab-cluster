@@ -85,11 +85,11 @@ spec:
 # Host: whoami-internal-3.priv.mlops-club.org
 
 
-Public Path:
-
-CNAME: *.mlops-club.org -> traefik.mlops-club.org
-CNAME: traefik.mlops-club.org -> <uuid>.cloudflare-tunnel.com (k3s-tunnel)
-
-k3s-tunnel -> http://traefik-public.traefik-public.svc.cluster.local:80
-
-client -> tunnel server (TLS termination w/ a CF-managed cert) -> traefik public service -> apps
+# Public Path:
+#
+# CNAME: *.mlops-club.org -> traefik.mlops-club.org
+# CNAME: traefik.mlops-club.org -> <uuid>.cloudflare-tunnel.com (k3s-tunnel)
+#
+# k3s-tunnel -> http://traefik-public.traefik-public.svc.cluster.local:80
+#
+# client -> tunnel server (TLS termination w/ a CF-managed cert) -> traefik public service -> apps
