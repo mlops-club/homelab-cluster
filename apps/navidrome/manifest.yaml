@@ -1,0 +1,155 @@
+# Navidrome — self-hosted music server (Subsonic/Airsonic-compatible)
+# Private access via Tailscale at navidrome.priv.mlops-club.org
+#
+# Storage: NFS on NAS for music library, local-path SSD for SQLite DB + scan cache
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: navidrome
+---
+# Static PV — music library on NAS at a human-readable path
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: navidrome-music
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: navidrome-music
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab/media/music"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: music
+  namespace: navidrome
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: navidrome-music
+  resources:
+    requests:
+      storage: 200Gi
+---
+# Data — SQLite DB, scan cache, transcoded files (node-local via local-path)
+# Must NOT be on NFS: Navidrome's SQLite needs POSIX file locking
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data
+  namespace: navidrome
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: navidrome
+  namespace: navidrome
+spec:
+  replicas: 1
+  strategy:
+    # Single-replica + RWO data PVC — Recreate avoids two pods racing the volume on rollout
+    type: Recreate
+  selector:
+    matchLabels:
+      app: navidrome
+  template:
+    metadata:
+      labels:
+        app: navidrome
+    spec:
+      containers:
+      - name: navidrome
+        image: deluan/navidrome:0.62.0
+        ports:
+        - containerPort: 4533
+          name: http
+        env:
+        - name: TZ
+          value: America/Denver
+        - name: ND_MUSICFOLDER
+          value: /music
+        - name: ND_DATAFOLDER
+          value: /data
+        - name: ND_LOGLEVEL
+          value: info
+        - name: ND_SCANSCHEDULE
+          value: "@every 1h"
+        volumeMounts:
+        - name: music
+          mountPath: /music
+        - name: data
+          mountPath: /data
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 4533
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 4533
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: music
+        persistentVolumeClaim:
+          claimName: music
+      - name: data
+        persistentVolumeClaim:
+          claimName: data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: navidrome
+  namespace: navidrome
+spec:
+  selector:
+    app: navidrome
+  ports:
+  - port: 4533
+    targetPort: 4533
+    name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: navidrome
+  namespace: navidrome
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik-private
+  tls:
+  - hosts:
+    - navidrome.priv.mlops-club.org
+    secretName: priv-wildcard-tls
+  rules:
+  - host: navidrome.priv.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: navidrome
+            port:
+              number: 4533
