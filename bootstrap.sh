@@ -37,6 +37,7 @@ REQUIRED_VARS=(
   "TAILSCALE_CLIENT_ID"
   "TAILSCALE_CLIENT_SECRET"
   "ACME_EMAIL"
+  "BETTERSTACK_SANDBOX_INGEST_TOKEN"
 )
 
 check_prerequisites() {
@@ -139,7 +140,7 @@ deploy_infrastructure() {
 
 deploy_examples() {
   echo "=== Deploying Example Applications ==="
-  
+
   # Deploy private network examples
   if [[ -d "${SCRIPT_DIR}/network/private/examples" ]]; then
     for manifest in "${SCRIPT_DIR}/network/private/examples"/*.yaml; do
@@ -149,7 +150,7 @@ deploy_examples() {
       fi
     done
   fi
-  
+
   # Deploy public network examples
   if [[ -d "${SCRIPT_DIR}/network/public/examples" ]]; then
     for manifest in "${SCRIPT_DIR}/network/public/examples"/*.yaml; do
@@ -159,21 +160,21 @@ deploy_examples() {
       fi
     done
   fi
-  
+
   echo "✓ Example applications deployed"
 }
 
 verify_deployment() {
   echo "=== Verifying Deployment ==="
-  
+
   echo ""
   echo "Cluster nodes:"
   kubectl get nodes || echo "  Warning: Could not list nodes"
-  
+
   echo ""
   echo "All pods status:"
   kubectl get pods --all-namespaces || echo "  Warning: Could not list pods"
-  
+
   echo ""
   echo "✓ Deployment verification complete"
 }
@@ -183,18 +184,17 @@ main() {
   bootstrap_cluster
   configure_kubeconfig
   deploy_infrastructure
-  
+
   if [[ "${DEPLOY_EXAMPLES}" == "true" ]]; then
     deploy_examples
   else
     echo "Skipping example application deployment (set DEPLOY_EXAMPLES=true to enable)"
   fi
-  
+
   verify_deployment
-  
+
   echo ""
   echo "=== Bootstrap Complete ==="
 }
 
 main "$@"
-

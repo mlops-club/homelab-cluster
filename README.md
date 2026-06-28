@@ -26,6 +26,18 @@ graph TD
         GPU_OP[gpu-operator<br/><sub>v26.3.2</sub>]:::release
     end
 
+    %% ── OBSERVABILITY ────────────────────────────────────────────
+    subgraph obs [Observability · opentelemetry-* + kube-state-metrics]
+        KSM[kube-state-metrics<br/><sub>v7.4.0</sub>]:::release
+        BS_SEC{{Secret:<br/>betterstack-sandbox-ingest-token}}:::hook
+        OTEL_OP[opentelemetry-operator<br/><sub>v0.115.0</sub>]:::release
+        OTEL_COL{{OpenTelemetryCollector:<br/>gateway + RBAC}}:::hook
+
+        BS_SEC -- presync --> OTEL_OP
+        OTEL_OP -- postsync --> OTEL_COL
+        KSM --> OTEL_OP
+    end
+
     %% ── PRIVATE NETWORK ──────────────────────────────────────────
     subgraph private [Private Network · traefik-private]
         CM_CRD{{cert-manager CRDs<br/><sub>6 CRDs · v1.19.2</sub>}}:::hook
@@ -81,12 +93,18 @@ graph TD
     NFS --> HAR
     TP --> HAR
 
+    %% OpenTelemetry Operator needs cert-manager (webhook TLS) and
+    %% gpu-operator (provides dcgm-exporter Service to scrape).
+    CM --> OTEL_OP
+    GPU_OP --> OTEL_OP
+
     %% ── STYLES ───────────────────────────────────────────────────
     classDef release fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
     classDef hook fill:#d1fae5,stroke:#059669,color:#064e3b
 
     style storage fill:#f8fafc,stroke:#cbd5e1,color:#334155
     style gpu fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style obs fill:#f8fafc,stroke:#cbd5e1,color:#334155
     style private fill:#f8fafc,stroke:#cbd5e1,color:#334155
     style public fill:#f8fafc,stroke:#cbd5e1,color:#334155
     style registry fill:#f8fafc,stroke:#cbd5e1,color:#334155
