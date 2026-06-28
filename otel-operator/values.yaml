@@ -1,0 +1,25 @@
+# Values for open-telemetry/opentelemetry-operator on this K3s cluster.
+#
+# Why these settings:
+#   - cert-manager is already installed in this cluster, so the operator's
+#     admission webhook uses cert-manager-issued TLS instead of the chart's
+#     self-signed fallback. Keeps webhook certs renewable and consistent with
+#     traefik-private's existing cert-manager usage.
+#   - manager.collectorImage pins the default Collector image to the
+#     "contrib" distribution, which is the only one shipping the
+#     k8sattributes processor + prometheus receiver we need. Without this
+#     override the operator would create Collectors using the upstream
+#     "core" image, which silently lacks those components.
+#   - The operator is small (one Deployment, ~50–100 MB RAM); leave
+#     replicaCount at the chart default of 1. No HA is needed in a homelab.
+
+manager:
+  collectorImage:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.154.0"
+
+admissionWebhooks:
+  certManager:
+    enabled: true
+  autoGenerateCert:
+    enabled: false
