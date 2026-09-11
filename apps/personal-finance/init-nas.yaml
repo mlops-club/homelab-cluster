@@ -1,0 +1,56 @@
+# init-nas.yaml
+# Purpose: Create the personal-finance users/ directory on the NAS
+# Scope: Temporary PV/PVC + Job, applied by deploy.sh and deleted once the Job completes
+# Overview: The static PV in manifest.yaml mounts /volume1/k8s-homelab/personal-finance/users,
+#     which must exist before a pod can mount it. This Job mounts the NFS share root and runs
+#     mkdir -p, which is idempotent and leaves existing plans untouched.
+# Related: deploy.sh, manifest.yaml, apps/jellyfin/init-nas.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-root-tmp
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: nfs-root-tmp
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-root-tmp
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: nfs-root-tmp
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mkdir-personal-finance
+spec:
+  ttlSecondsAfterFinished: 30
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: mk
+        image: busybox
+        command: ["sh", "-c", "mkdir -p /mnt/personal-finance/users"]
+        volumeMounts:
+        - name: nfs
+          mountPath: /mnt
+      volumes:
+      - name: nfs
+        persistentVolumeClaim:
+          claimName: nfs-root-tmp

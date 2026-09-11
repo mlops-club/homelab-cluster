@@ -78,6 +78,7 @@ homelab-cluster/
 ├── apps/                       # Business applications
 │   ├── audiobookshelf/         # Self-hosted audiobook server (NFS-backed media)
 │   ├── come-follow-me-app/     # Rust backend app
+│   ├── personal-finance/       # FIRE planner (FastAPI, NAS-backed users/)
 │   └── seminary-feedback/      # Feedback collection app
 ├── aws/                        # AWS CDK infrastructure (DR/cloud fallback)
 ├── image-registry/             # Harbor private container registry

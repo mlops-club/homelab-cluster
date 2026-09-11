@@ -1,0 +1,142 @@
+# manifest.yaml
+# Purpose: Deploy the personal-finance FIRE planner at personal-finance.mlops-club.org
+# Scope: personal-finance namespace — NAS-backed user storage, Deployment, Service, and public Ingress
+# Overview: Runs the FastAPI + single-page-HTML FIRE planner (github.com/phitoduck/personal-finance)
+#     from its Harbor image. Each user's plan and salted password hash is one JSON file in users/;
+#     that directory is a static NFS volume on the NAS at /volume1/k8s-homelab/personal-finance/users
+#     with a Retain policy, so deleting the PVC or namespace never deletes plans. The session-signing
+#     key is mounted from the session-secret Secret so sign-ins survive pod restarts. One replica
+#     with the Recreate strategy keeps a single writer on the JSON files. Public traffic arrives via
+#     the Cloudflare Tunnel catch-all -> traefik-public; the app performs its own password sign-in.
+# Dependencies: harbor-creds and session-secret Secrets (created by deploy.sh), the NAS directory
+#     (created by init-nas.yaml), the traefik-public ingress class
+# Environment: PERSONAL_FINANCE_APP_VERSION is substituted by deploy.sh via envsubst
+# Related: deploy.sh, init-nas.yaml, README.md
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: personal-finance
+---
+# Static PV — users/<name>.json on NAS at a human-readable path; Retain keeps plans if the PVC goes away
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: personal-finance-users
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: personal-finance-users
+    volumeAttributes:
+      server: "100.117.142.58"
+      share: "/volume1/k8s-homelab/personal-finance/users"
+  mountOptions: [nfsvers=3, nolock]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: users
+  namespace: personal-finance
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: personal-finance-users
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: personal-finance
+  namespace: personal-finance
+  labels:
+    app: personal-finance
+spec:
+  replicas: 1
+  # Single writer: never run an old and a new pod against the same JSON files
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: personal-finance
+  template:
+    metadata:
+      labels:
+        app: personal-finance
+    spec:
+      imagePullSecrets:
+      - name: harbor-creds
+      containers:
+      - name: personal-finance
+        image: cr.priv.mlops-club.org/personal-finance/app:${PERSONAL_FINANCE_APP_VERSION}
+        ports:
+        - containerPort: 8080
+          name: http
+        # Lists users/ on the NAS, so the pod only goes ready once the volume is readable
+        readinessProbe:
+          httpGet:
+            path: /api/users
+            port: http
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        volumeMounts:
+        - name: users
+          mountPath: /app/users
+        - name: session-secret
+          mountPath: /app/.session_secret
+          subPath: session_secret
+          readOnly: true
+      volumes:
+      - name: users
+        persistentVolumeClaim:
+          claimName: users
+      - name: session-secret
+        secret:
+          secretName: session-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: personal-finance
+  namespace: personal-finance
+  labels:
+    app: personal-finance
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: personal-finance
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: personal-finance
+  namespace: personal-finance
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik-public
+  rules:
+  - host: personal-finance.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: personal-finance
+            port:
+              number: 8080
