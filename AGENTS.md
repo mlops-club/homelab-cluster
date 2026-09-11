@@ -95,6 +95,7 @@ Apps are deployed via per-app scripts, separate from helmfile:
 |---------|-------------|
 | `./apps/come-follow-me-app/deploy.sh` | Deploy the Come Follow Me app |
 | `./apps/seminary-feedback/deploy.sh` | Deploy the Seminary Feedback app |
+| `./apps/personal-finance/deploy.sh` | Deploy the personal-finance FIRE planner |
 
 ### Kubernetes Debugging
 
