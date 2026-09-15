@@ -1,0 +1,46 @@
+# GuideLLM benchmark Job — runs a fixed suite of scenarios against the
+# in-cluster Ollama service, writes JSON outputs to /work, then sleeps so
+# the calling script can `kubectl cp` them out.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: guidellm-bench
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: guidellm
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PIP_DISABLE_PIP_VERSION_CHECK
+              value: "1"
+            - name: PIP_ROOT_USER_ACTION
+              value: ignore
+            - name: HF_HOME
+              value: /work/hf-cache
+          workingDir: /work
+          command: ["/bin/bash", "-eux", "-o", "pipefail", "-c"]
+          args:
+            - |
+              pip install --quiet guidellm
+              bash /scripts/suite.sh
+              echo "DONE -- sleeping for retrieval"
+              sleep 1800
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: scripts
+          configMap:
+            name: guidellm-suite-script
+            defaultMode: 0755
+        - name: work
+          emptyDir: {}
