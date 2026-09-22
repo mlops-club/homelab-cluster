@@ -4,8 +4,7 @@
 # Overview: Runs a feature branch's image at https://personal-finance-<slug>.mlops-club.org, where <slug> is
 #     the branch name made URL-safe. Each preview is isolated from production and from other previews: its
 #     own namespace, session key, and users/ directory, which is an empty dynamically provisioned NAS volume
-#     (nas-nfs, Delete reclaim policy), so deleting the namespace deletes the preview's plans with it and
-#     production plans are never mounted. One replica with the Recreate strategy keeps a single writer on the
+#     (nas-nfs), which `preview.sh delete` removes along with the namespace; production plans are never mounted. One replica with the Recreate strategy keeps a single writer on the
 #     JSON files, as in production. Public traffic reaches it through the Cloudflare Tunnel catch-all and
 #     traefik-public; *.mlops-club.org is a single-level wildcard, so the host is one DNS label.
 # Dependencies: harbor-creds and session-secret Secrets (created by preview.sh), the nas-nfs StorageClass,
@@ -23,7 +22,7 @@ metadata:
   annotations:
     personal-finance/branch: "${PREVIEW_BRANCH}"
 ---
-# Dynamically provisioned under /volume1/k8s-homelab on the NAS; removed with the namespace
+# Dynamically provisioned under /volume1/k8s-homelab on the NAS; preview.sh delete removes its directory
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

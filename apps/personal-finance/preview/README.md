@@ -69,7 +69,10 @@ Those recipes call `preview.sh` here, which also works on its own with an image 
 
 `deploy` is idempotent: it creates the namespace, the `harbor-creds` pull secret and (once) the session key,
 applies `manifest.yaml`, waits for the rollout, and waits for `/api/users` to answer on the public URL.
-`delete` deletes the namespace, which deletes the preview's NAS volume, and then the branch's images in Harbor.
+`delete` removes the preview's plans, its namespace, and the branch's images in Harbor. The NFS CSI driver can't
+delete `nas-nfs` volumes itself (it mounts the share without `nolock`, and the volume is left `Released`), so
+`delete` does it: it scales the app down, runs a Job that mounts the share root with `nolock` and removes only that
+volume's `pvc-<uid>` directory, then deletes the PersistentVolume.
 
 ## Security Notes
 
