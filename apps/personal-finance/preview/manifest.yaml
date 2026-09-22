@@ -3,9 +3,9 @@
 # Scope: A personal-finance-<slug> namespace — its own storage, Deployment, Service, and public Ingress
 # Overview: Runs a feature branch's image at https://personal-finance-<slug>.mlops-club.org, where <slug> is
 #     the branch name made URL-safe. Each preview is isolated from production and from other previews: its
-#     own namespace, session key, and users/ directory, which is an empty dynamically provisioned NAS volume
-#     (nas-nfs), which `preview.sh delete` removes along with the namespace; production plans are never mounted. One replica with the Recreate strategy keeps a single writer on the
-#     JSON files, as in production. Public traffic reaches it through the Cloudflare Tunnel catch-all and
+#     own namespace, session key, and users/ directory: an empty dynamically provisioned NAS volume (nas-nfs)
+#     that `preview.sh delete` removes along with the namespace. Production plans are never mounted. One replica
+#     with the Recreate strategy keeps a single writer on the JSON files, as in production. Public traffic reaches it through the Cloudflare Tunnel catch-all and
 #     traefik-public; *.mlops-club.org is a single-level wildcard, so the host is one DNS label.
 # Dependencies: harbor-creds and session-secret Secrets (created by preview.sh), the nas-nfs StorageClass,
 #     the traefik-public ingress class
