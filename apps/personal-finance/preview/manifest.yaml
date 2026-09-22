@@ -1,0 +1,127 @@
+# manifest.yaml
+# Purpose: One preview environment of the personal-finance FIRE planner, for a feature branch
+# Scope: A personal-finance-<slug> namespace — its own storage, Deployment, Service, and public Ingress
+# Overview: Runs a feature branch's image at https://personal-finance-<slug>.mlops-club.org, where <slug> is
+#     the branch name made URL-safe. Each preview is isolated from production and from other previews: its
+#     own namespace, session key, and users/ directory: an empty dynamically provisioned NAS volume (nas-nfs)
+#     that `preview.sh delete` removes along with the namespace. Production plans are never mounted. One replica
+#     with the Recreate strategy keeps a single writer on the JSON files, as in production. Public traffic reaches it through the Cloudflare Tunnel catch-all and
+#     traefik-public; *.mlops-club.org is a single-level wildcard, so the host is one DNS label.
+# Dependencies: harbor-creds and session-secret Secrets (created by preview.sh), the nas-nfs StorageClass,
+#     the traefik-public ingress class
+# Environment: PREVIEW_NAME (namespace and host label), PREVIEW_BRANCH, PREVIEW_IMAGE — substituted by
+#     preview.sh via envsubst
+# Related: preview.sh, README.md, ../manifest.yaml (production)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${PREVIEW_NAME}
+  labels:
+    app.kubernetes.io/part-of: personal-finance-preview
+  annotations:
+    personal-finance/branch: "${PREVIEW_BRANCH}"
+---
+# Dynamically provisioned under /volume1/k8s-homelab on the NAS; preview.sh delete removes its directory
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: users
+  namespace: ${PREVIEW_NAME}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nas-nfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: personal-finance
+  namespace: ${PREVIEW_NAME}
+  labels:
+    app: personal-finance
+  annotations:
+    personal-finance/branch: "${PREVIEW_BRANCH}"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: personal-finance
+  template:
+    metadata:
+      labels:
+        app: personal-finance
+    spec:
+      imagePullSecrets:
+      - name: harbor-creds
+      containers:
+      - name: personal-finance
+        image: ${PREVIEW_IMAGE}
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /api/users
+            port: http
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        volumeMounts:
+        - name: users
+          mountPath: /app/users
+        - name: session-secret
+          mountPath: /app/.session_secret
+          subPath: session_secret
+          readOnly: true
+      volumes:
+      - name: users
+        persistentVolumeClaim:
+          claimName: users
+      - name: session-secret
+        secret:
+          secretName: session-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: personal-finance
+  namespace: ${PREVIEW_NAME}
+  labels:
+    app: personal-finance
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: personal-finance
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: personal-finance
+  namespace: ${PREVIEW_NAME}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik-public
+  rules:
+  - host: ${PREVIEW_NAME}.mlops-club.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: personal-finance
+            port:
+              number: 8080

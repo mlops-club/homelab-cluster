@@ -70,6 +70,7 @@ scripts:
     come_follow_me: apps/come-follow-me-app/deploy.sh (deploy CFM app)
     seminary_feedback: apps/seminary-feedback/deploy.sh (deploy Seminary app)
     personal_finance: apps/personal-finance/deploy.sh (deploy personal-finance FIRE planner)
+    personal_finance_preview: apps/personal-finance/preview/preview.sh (deploy, list, delete per-branch previews at personal-finance-<branch>.mlops-club.org)
   quality:
     prek_pr: prek pr (run all quality checks before PR)
     prek_run: prek run (run pre-commit hooks on staged files)

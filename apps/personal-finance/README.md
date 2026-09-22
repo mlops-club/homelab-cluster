@@ -17,7 +17,7 @@
 
 **Exports**: `personal-finance` namespace, https://personal-finance.mlops-club.org
 
-**Related**: `manifest.yaml`, `deploy.sh`, `init-nas.yaml`, `.ai/howto/how-to-deploy-a-new-app.md`
+**Related**: `manifest.yaml`, `deploy.sh`, `init-nas.yaml`, `preview/README.md`, `.ai/howto/how-to-deploy-a-new-app.md`
 
 ---
 
@@ -63,6 +63,11 @@ in the app repo is local-development data.
    kubectl get pods,pvc -n personal-finance
    curl -s https://personal-finance.mlops-club.org/api/users
    ```
+
+## Preview Branches
+
+Feature branches can run on their own subdomain, `https://personal-finance-<branch>.mlops-club.org`, with no
+access to production data. See [`preview/README.md`](preview/README.md).
 
 ## Seed Existing Users (First Deploy)
 
