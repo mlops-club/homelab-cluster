@@ -1,0 +1,74 @@
+#!/bin/bash
+# run
+# Purpose: Deploy and tear down k8s-relay, the Lightsail peer relay for the private network
+# Scope: Lightsail instance lifecycle and the tailnet auth key it joins with
+# Overview: `up` runs Pulumi against a throwaway local state directory that is deleted afterwards,
+#     so no Pulumi state is stored anywhere. `down` needs no state: the instance has a fixed
+#     physical name and is deleted by name with the AWS CLI. Both are safe to run from a laptop
+#     or CI. To change the relay, run `down` then `up`.
+# Dependencies: pulumi, uv, aws CLI, jq, curl; TS_OAUTH_CLIENT_ID/TS_OAUTH_CLIENT_SECRET (auth-keys scope)
+#     or a pre-minted TS_AUTH_KEY
+# Exports: Lightsail instance k8s-relay (us-west-2); tailnet device k8s-relay (tag:k8s-relay)
+# Usage: ./run up | down | status
+# Environment: AWS_PROFILE (default k2); BUNDLE (default large_3_0)
+# Related: README.md (design, benchmarks, required tailnet policy), __main__.py (Pulumi program)
+# Implementation: `up` refuses to run when the instance exists; `down` ignores NotFound
+set -euo pipefail
+
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export AWS_PROFILE="${AWS_PROFILE:-k2}"
+NAME=k8s-relay
+REGION=us-west-2
+
+function instance-ip {
+    aws lightsail get-instance --instance-name "$NAME" --region "$REGION" \
+        --query 'instance.publicIpAddress' --output text 2>/dev/null || true
+}
+
+function tsapi {  # tsapi <METHOD> <path> [curl args...]
+    local method="$1" path="$2" token; shift 2
+    : "${TS_OAUTH_CLIENT_ID:?set TS_OAUTH_CLIENT_ID/TS_OAUTH_CLIENT_SECRET or TS_AUTH_KEY}"
+    token="$(curl -fsS -d "client_id=$TS_OAUTH_CLIENT_ID" -d "client_secret=$TS_OAUTH_CLIENT_SECRET" \
+        https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)"
+    curl -fsS -X "$method" -H "Authorization: Bearer $token" "https://api.tailscale.com/api/v2$path" "$@"
+}
+
+function authkey {  # single-use, pre-approved, 1h key; tagged devices never expire
+    tsapi POST /tailnet/-/keys -H 'Content-Type: application/json' -d '{
+      "capabilities": {"devices": {"create": {"reusable": false, "ephemeral": false, "preauthorized": true,
+        "tags": ["tag:k8s-relay"]}}},
+      "expirySeconds": 3600, "description": "k8s-relay"}' | jq -r .key
+}
+
+function up {
+    if [ -n "$(instance-ip)" ]; then
+        echo "$NAME already exists; run ./run down first (Pulumi state is intentionally not kept)" >&2
+        exit 1
+    fi
+    local key="${TS_AUTH_KEY:-$(authkey)}"
+
+    local pulumi_home; pulumi_home="$(mktemp -d)"
+    trap "rm -rf '$pulumi_home'" RETURN
+    export PULUMI_BACKEND_URL="file://$pulumi_home" PULUMI_CONFIG_PASSPHRASE=""
+    cd "$THIS_DIR"
+    pulumi stack init relay --non-interactive >/dev/null
+    pulumi config set aws:region "$REGION"
+    pulumi config set bundle "${BUNDLE:-large_3_0}"
+    pulumi config set --secret authKey "$key"
+    pulumi up --yes --skip-preview
+    status
+}
+
+function down {
+    echo "deleting instance $NAME ($REGION)"
+    aws lightsail delete-instance --instance-name "$NAME" --region "$REGION" >/dev/null 2>&1 || echo "  (not found)"
+    while aws lightsail get-instance --instance-name "$NAME" --region "$REGION" >/dev/null 2>&1; do sleep 3; done
+    echo "the tailnet device $NAME stays listed (offline) until removed in the admin console"
+}
+
+function status {
+    aws lightsail get-instance --instance-name "$NAME" --region "$REGION" \
+        --query 'instance.[name,state.name,publicIpAddress,bundleId]' --output text 2>/dev/null || echo "$NAME absent"
+}
+
+"$@"
