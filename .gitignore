@@ -22,3 +22,5 @@
 
 # Ansible collection installs (created by ansible-galaxy)
 **/.ansible/
+# Private planning notes (security-sensitive; repo is public)
+**/PRIVATE-*.md
