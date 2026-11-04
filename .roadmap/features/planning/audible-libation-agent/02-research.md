@@ -15,7 +15,7 @@
 
 ## TL;DR
 
-> **Spike result** (`03-spike-results.md`): an exported login file worked inside the unmodified K2 pod. audible-cli listed new books, downloaded and decrypted *The Big Con*, and the M4B landed on the NAS via a no-overwrite write. Libation is not needed on the homelab.
+> **Spike results** (`03-spike-results.md`): an exported login file worked inside the unmodified K2 pod. Spike 1: audible-cli listed new books, downloaded and decrypted *The Big Con*, and the M4B landed on the NAS via a no-overwrite write. Spike 2: LibationCli (self-contained Linux build plus user-space ICU) ran in K2 with a **throwaway config built from one plain secret**, and produced the finished M4B in 14 s.
 
 1. **Login lifespan is better than feared.** An Audible device registration gives two kinds of credentials. Access tokens last 60 minutes and auto-refresh. The registration's signing keys (`adp_token` + `device_private_key`) stay valid **until the device is deregistered**. Tools that sign requests (audible-cli does by default) never need a refresh. Realistic answer to "how often do I log in?": once per account, plus again only if the registration is deregistered or Audible starts refusing it.
 2. **Two viable toolchains, both headless:**

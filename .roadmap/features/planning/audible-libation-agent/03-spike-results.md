@@ -173,7 +173,7 @@ It appears in the UI after the next library scan (automatic or manual).
 
 ## What this proves
 
-- **audible-cli alone covers the MVP**: list "new since date", download by ASIN, and (with ffmpeg) decrypt. **Libation is not needed on the homelab.**
+- **audible-cli alone covers the MVP**: list "new since date", download by ASIN, and (with ffmpeg) decrypt. Spike 2 shows **LibationCli also runs in K2** and does it in one command.
 - **A login file is portable.** Created on the Mac, it worked unchanged inside the K2 pod. This confirms that changing or rebuilding K2 does not require a new Audible login, as long as a copy of the file is kept.
 - **Nothing needs installing into the K2 image.** `uvx` fetches audible-cli, audible, cryptography and a static ffmpeg into the persistent uv cache.
 - **ASIN-in-folder-name** is a working "already on NAS" check.
@@ -191,3 +191,66 @@ It appears in the UI after the next library scan (automatic or manual).
 - K2 pod: removed `~/audible-staging` (AAXC, voucher, chapters, cover, M4B) and `~/.audible` (login copy and config). The uv cache (packages, static ffmpeg) remains and holds no credentials.
 - NAS: the one new folder `The Big Con [B0BB43Q19T]` is the intended result and stays.
 - Mac: the exported login file was moved out of `~/Downloads` into the session scratchpad.
+
+---
+
+## Spike 2: LibationCli inside K2, with throwaway config
+
+**Goal**: check whether Libation (one command: download, decrypt, chapters, cover, NAS-style naming) runs in the unmodified K2 pod, and whether its secrets can be reduced to **one plain file**.
+
+![Spike 2: LibationCli in K2 with a throwaway config](images/11-spike2-libation-in-k2.jpg)
+
+### Install without root or image changes
+
+```bash
+cd ~/.local/opt     # on the K2 PVC, survives restarts
+curl -fsSLO https://github.com/rmcrackan/Libation/releases/download/v14.2.5/Libation.14.2.5-linux-chardonnay-amd64.deb
+dpkg-deb -x Libation.14.2.5-linux-chardonnay-amd64.deb libation-14.2.5     # self-contained .NET, 198 MB
+curl -fsSLo libicu74.deb http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu74_74.2-1ubuntu3.1_amd64.deb
+dpkg-deb -x libicu74.deb icu                                                 # 36 MB
+export LD_LIBRARY_PATH=$HOME/.local/opt/icu/usr/lib/x86_64-linux-gnu
+```
+
+**Gotcha 2**: without ICU, LibationCli aborts with `Couldn't find a valid ICU package`. `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` lets it start, but downloads then fail with `There is no region associated with the Invariant Culture`. Real ICU via `LD_LIBRARY_PATH` fixes both.
+
+### One secret, everything else disposable
+
+```bash
+LF=/tmp/lf-run                                  # throwaway Libation config
+echo '{"Books":"<staging>","InProgress":"/tmp/lf-inprogress","TokenStorageMethod":"Plaintext","UseWidevine":true}' > $LF/Settings.json
+LibationCli import-account --libationFiles $LF /secret/account-a.json   # audible-cli JSON from the GUI export
+LibationCli list-accounts  --libationFiles $LF    # Authenticated: yes
+LibationCli scan           --libationFiles $LF    # 960 titles, 9 s
+LibationCli liberate       --libationFiles $LF --force B0BB43Q19T      # 14 s
+rm -rf $LF                                        # nothing to keep
+```
+
+```console
+Imported account: <acct> - us
+Scan complete. Total processed: 960
+DownloadDecryptBook Completed: [B0BB43Q19T] The Big Con: ...
+-> The Big Con [B0BB43Q19T]/The Big Con: How the Consulting Industry ... [B0BB43Q19T].m4b   (510 MB)
+Duration: 08:56:02.19 · aac LC 125 kb/s · 12 chapters · 2400x2400 cover embedded · decode ok @32000s
+```
+
+- **VERIFIED**: The import keeps the Android device type (`A10KISP2GWF0E4`), so Widevine is allowed.
+- **VERIFIED**: `TokenStorageMethod: Plaintext` is honored (`Atnr|…` refresh token stored raw). No master key is needed. Import still prints a "LAST-RESORT … created a portable master key" warning; it is harmless here because the folder is thrown away.
+- **VERIFIED**: The folder name matches the NAS convention (`Title [ASIN]/`). The file name uses the full title, like existing NAS files (e.g. `11-22-63: A Novel [B005UR3VFO].m4b`).
+- **NOT VERIFIED**: which DRM Audible granted. `UseWidevine: true` was requested, but the log at INFO level does not record the granted DRM type.
+- **Not written to the NAS**: the book was already there from spike 1. Staging was deleted.
+
+### Simpler Libation secrets: options
+
+| Option | The one secret | Libation state | Notes |
+|--------|----------------|----------------|-------|
+| **A. Import per session (tested)** | audible-cli JSON (GUI "Export to audible-cli") | Throwaway `/tmp` dir, rebuilt each session (~10 s scan) | No master key, no persistent credential file. Refreshed access tokens are discarded; the next session refreshes again |
+| B. Plaintext `AccountsSettings.json` | Libation's own file with `TokenStorageMethod: Plaintext` | Throwaway, copied in per session | Same idea; skips the import step. Plaintext files are portable without a master key (inferred from the Docker docs) |
+| C. Encrypted + master key (Libation's Docker default) | `AccountsSettings.json` **and** `libation-master.key` | Persistent, writable | Two secrets, both pets. Not recommended here |
+
+**Residual risk for all options**: when a token refresh fails, Libation calls deregister and then tries to re-register (`IdentityMaintainer.cs:71-98`). Deregistration happens at Amazon, so a throwaway config does not contain it. Mitigation to evaluate in design: run `list-accounts` first and stop if `Authenticated` is not `yes`.
+
+### Cleanup performed (spike 2)
+
+- K2: removed `/tmp/secret`, `/tmp/lf-run`, `/tmp/lf-inprogress`, `~/libation-staging`, and both `.deb` files.
+- Kept in K2: `~/.local/opt/libation-14.2.5` and `~/.local/opt/icu` (tooling, no secrets).
+- Mac: the second GUI export was streamed into the pod and deleted from `~/Downloads`.
