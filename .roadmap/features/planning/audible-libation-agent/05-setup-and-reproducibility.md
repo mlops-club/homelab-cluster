@@ -6,13 +6,15 @@
 
 **Overview**: The spikes installed tools by hand into the running K2 pod, which makes the pod a pet:
     the setup exists only on its disk and only as a side effect of commands someone ran. This
-    document replaces that with (1) a pinned, checksummed, idempotent install step kept in git,
+    document replaces that with (1) a pinned, checksummed, idempotent install recipe kept in git and run once,
     (2) one secret per account whose source of truth lives outside the cluster, and (3) a staged
     plan to move both into the K2 image/manifest so a rebuilt pod needs no manual steps.
 
 **Related**: `04-decision-libationcli.md`, `03-spike-results.md`
 
 ---
+
+![Plan: once, each conversation, later](images/12-plan-mvp.jpg)
 
 ## 1. What makes this a pet today
 
@@ -35,7 +37,7 @@ flowchart TB
   subgraph git["Git (this repo)"]
     M["apps/k2/ manifest"]
     I["k2-agents image build<br/>(Libation + ICU pinned)"]
-    S["ensure-libation.sh<br/>(pinned, checksummed)"]
+    S["ensure-libation.sh<br/>(pinned recipe, run once)"]
     SK["K2 skill: audible-library"]
   end
   subgraph outside["Outside the cluster"]
@@ -57,10 +59,10 @@ flowchart TB
 | Stage | Change | K2 edits? | Rebuild after PVC loss |
 |-------|--------|-----------|------------------------|
 | **0 (spikes, today)** | Hand-run installs in the pod | No | Repeat by hand from `03-spike-results.md` |
-| **1 (MVP)** | `ensure-libation.sh` in git, run by the K2 skill at session start. Secret source of truth in a password manager | No | Re-run is automatic; re-add one secret per account |
+| **1 (MVP)** | `ensure-libation.sh` in git, run **once** at setup (and again only after an upgrade or a lost K2 disk). Secret source of truth in a password manager | No | Re-run the script once; re-add one secret per account |
 | **2 (K2 hardening)** | Capture the K2 StatefulSet into `apps/k2/`; bake Libation + ICU into the `k2-agents` image (or an initContainer); deliver the secret as a read-only k8s Secret mount; add a NAS volume for writes | Yes | `kubectl apply` + restore secret from password manager |
 
-Stage 1 makes the pod's state **derived** from git (any lost install is recreated on the next session). Stage 2 removes the install from runtime entirely. Stage 2 belongs to a separate K2-hardening feature.
+Stage 1 makes the pod's state **derived** from git: the install is a recipe, not a memory. Stage 2 removes the install from runtime entirely. Stage 2 belongs to a separate K2-hardening feature.
 
 ## 4. Stage 1 setup
 
@@ -137,11 +139,15 @@ The "last conversation" timestamp is the only state worth keeping between sessio
 ### 4.4 Restore after losing the K2 disk
 
 1. Re-apply K2 (Stage 2) or let the pod come back.
-2. First session: the skill runs `ensure-libation.sh` (reinstalls tools).
+2. Run `ensure-libation.sh` once (reinstalls tools).
 3. Re-add each account's JSON from the password manager into K2.
 4. Run the per-session procedure. The `list-accounts` gate confirms the login.
 
-## 5. Undoing the spikes' hand mutations
+## 5. Parked: a dedicated Libation sandbox pod
+
+A separate pod from Libation's official image (LibationCli + ICU built in), with the login secret and NAS mounted, that the K2 agent sends commands into. It keeps K2 itself untouched but needs a K2 permission change. Revisit with the K2-hardening feature.
+
+## 6. Undoing the spikes' hand mutations
 
 To prove Stage 1 works from scratch, remove what the spikes left, then let `ensure-libation.sh` recreate it:
 
