@@ -188,15 +188,56 @@ Events that do **not** force a re-login: time passing, pod restarts (if the file
 
 **VERIFIED** (Libation issue #1284): a LibationCli install whose stored access token went stale stopped finding new books. Copying a fresh `AccountsSettings.json` from the desktop fixed it. The maintainer said refresh "is supposed to happen automatically." Takeaway: **give each machine its own registration** rather than sharing one file across machines, which leads to drift.
 
-### 2.3 The current Audible license problem (September 2026 onward)
+### 2.3 License refusals: what is known (September 2026 onward)
+
+**The mechanism.** Listing the library and downloading a book are different API calls. A download first calls `POST 1.0/content/{asin}/licenserequest`, which returns the decryption key. Since September 2026, Audible has sometimes answered that call with HTTP 200 and `"status_code": "Denied"`, including `AYCL / CustomerThrottled`. Listing keeps working, so the failure only shows up at download time (mkb79/Audible#909).
 
 ![Libation issue #2110: Content License Denied, Audible changed something in early September 2026](images/09-libation-issue-2110-denied.jpg)
 *Source: [Libation issue #2110](https://github.com/rmcrackan/Libation/issues/2110) (open)*
 
-- **VERIFIED**: Audible now answers some license requests with `CustomerThrottled` / `License Denied`. Old or malformed registrations are hit hardest. Examples: Libation's earlier Android serial that was twice the expected length, and the old iPhone profile (app 3.56.2 / iOS 15).
-- **VERIFIED** (mkb79/audible-cli#317): *"registering a new device with audible v0.13.1… solved the issue."* audible 0.13.1 uses the new 40-character serial and app profile 4.60.
-- **VERIFIED**: Libation's fix is the corrected `CurrentAndroid` registration. The Mac accounts already use it.
-- **Implication**: whichever tool runs on the homelab must create a **fresh registration with a current profile**, not reuse an old one. This is a moving target. Pin tool versions and expect to follow upstream changes.
+**What the device registration has to do with it (VERIFIED).** mkb79 registered two fresh iPhone devices on the same account and requested the same title once from each. Only the serial and three version fields differed:
+
+![mkb79/Audible#909: same account, old profile Denied, new profile Granted](images/10-audible-909-profile-granted-denied.jpg)
+*Source: [mkb79/Audible#909](https://github.com/mkb79/Audible/issues/909), 2026-10-23*
+
+The fix was released as audible **0.13.1** (2026-10-23, "Register new iPhone devices with the Audible 4.60 profile", #910). **Existing auth files keep their old registration.** Upgrading the library does not repair a registration made earlier; only a new login does.
+
+**The registration profiles in play** (from source):
+
+| Client | Profile it registers as | Values | Reported result |
+|--------|------------------------|--------|-----------------|
+| Libation 14.2.x default (`CurrentAndroid`) | Android Audible app, device type `A10KISP2GWF0E4` | app `26.34.07`, Android 14 emulator (`AudibleApi/Resources.cs:13-23`) | Working for most #2110 reporters after re-registering. **Granted on 2026-11-03 in our spike** (ADRM via audible-cli, `03-spike-results.md`) |
+| Libation `Mkb79IPhone` ("iOS, experimental") | iPhone, device type `A2CZJZGLK2JJVM` | app `3.56.2`, iOS `15.0.0` (`DeviceRegistrationProfile.cs:118-147`) | **Denied** pattern; #2110 reporters fixed it by switching to Android |
+| audible / audible-cli **< 0.13.1** | iPhone, 32-char serial | app `3.56.2`, iOS `15.0.0` | **Denied** in mkb79's controlled test |
+| audible **≥ 0.13.1** | iPhone, 40-char serial (`login.py:246`) | app `4.60`, iOS `26.2`, software `46000856` (`_device.py:3-5`) | **Granted** in mkb79's controlled test (one account, one title) |
+| Old Libation Android registrations | Android, serial twice the expected length | n/a | Denied; Libation docs say to re-register (`device-registration.md`) |
+
+**The throttle itself also responds to behavior (reported, not proven):**
+- #909's reporter notes they "made many license requests, logins and device registrations" over two days before the denials, and suspects that caused it.
+- Libation maintainers in #2110 advise waiting 24 to 48 hours **without retrying**, because "every time it says it's throttling you it adds to your time." Running a scheduled liberate loop made it worse for one reporter.
+- Several reporters downloaded one book at a time (not "Liberate all") and got through.
+- One reporter's official phone app also queued downloads for hours during the throttle, which suggests account-level state, not only the device.
+
+**Which clients can download (and with which DRM):**
+
+| Client | DRM it requests | Output | Notes |
+|--------|-----------------|--------|-------|
+| Official Audible app, iPhone | FairPlay | In-app only | mkb79 got FairPlay **Granted** on an iPhone registration that was Denied for ADRM |
+| Official Audible app, Android | Widevine / ADRM | In-app only | The profile Libation's `CurrentAndroid` imitates |
+| Libation, Android profile | ADRM, or **Widevine** when enabled in Audio File Settings | Decrypted `.m4b` | #2110 maintainer: Widevine is "the best setting… audio quality is better… login seems a bit more stable" |
+| Libation, iPhone profile | ADRM | Decrypted `.m4b` | No Widevine (device-registration docs table) |
+| audible-cli | ADRM (AAXC) or Mpeg (legacy AAX) | Encrypted `.aaxc` + voucher, then ffmpeg | No Widevine path |
+
+**Concrete mitigations:**
+1. **Register with a current profile only**: Libation 14.2.x `CurrentAndroid`, or audible ≥ 0.13.1. Never Libation's iPhone option or audible < 0.13.1.
+2. **Register once per account and keep it.** Every new registration is visible to Amazon and shows up as "<name>'s Nth Audible for Android". Do not create test registrations casually.
+3. **One license request per chosen book, no automatic retries.** On `Denied`, stop, report the denial reasons to the user, and do not try again for 24 to 48 hours.
+4. **Smoke-test right after registering**: download one book you know is owned (not a Plus-catalog title) before relying on the registration.
+5. **Prune stale registrations** named "Libation" from Amazon's Content & Devices page, which is the first step in #2110's recovery procedure. This is a manual, user-only action.
+6. **Keep a fallback**: the Mac's Libation registration currently works (Granted 2026-11-03). If the homelab registration is throttled, the Mac can still download.
+7. **Consider Widevine via Libation** as a second DRM path if ADRM gets refused, since Widevine is only available on the Android profile.
+
+**Still unknown:** the exact throttle threshold, whether it is per device or per account (evidence points both ways), and whether Plus-catalog titles behave differently from purchased ones (the #909 reporter's library was all catalog titles).
 
 ### 2.4 How a login can happen without a GUI
 
