@@ -34,6 +34,7 @@ howto:
     - how-to-connect-audiobookshelf-from-ios.md (connect to Audiobookshelf from iOS using AudioBooth)
     - how-to-create-tailscale-ci-oauth.md (create Tailscale OAuth client for GitHub Actions CI)
     - how-to-capture-screenshots-for-docs.md (capture clean screenshots from live web apps for documentation)
+    - how-to-use-radar.md (Radar Kubernetes UI at radar.priv.mlops-club.org, laptop CLI, and read-only MCP for Claude Code)
 
 templates:
   location: .ai/templates/
@@ -62,7 +63,7 @@ scripts:
     deploy: k3s-ansible/run deploy (deploy K3s cluster via Ansible)
     reset: k3s-ansible/run reset (tear down K3s cluster)
   infrastructure:
-    helmfile: helmfile.yaml.gotmpl (declarative spec for all 9 Helm releases)
+    helmfile: helmfile.yaml.gotmpl (declarative spec for all 13 Helm releases)
     diff: source .env && helmfile -f helmfile.yaml.gotmpl diff (preview changes)
     apply: source .env && helmfile -f helmfile.yaml.gotmpl apply (deploy changes)
     template: source .env && helmfile -f helmfile.yaml.gotmpl template (render locally)

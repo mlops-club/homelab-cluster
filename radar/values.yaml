@@ -1,0 +1,81 @@
+# Values for skyhook/radar on this K3s homelab cluster.
+#
+# Purpose: Run Radar (Kubernetes UI + MCP server) in-cluster at
+#     https://radar.priv.mlops-club.org, reachable only from the Tailnet.
+#
+# Why these settings:
+#   - Access boundary is the Tailnet, matching other *.priv services (ollama,
+#     open-webui). Radar runs with auth.mode=none, so anyone who can reach the
+#     URL acts with Radar's ServiceAccount. That account is therefore kept
+#     strictly read-only:
+#       * chart-default RBAC (get/list/watch on common kinds + pod logs),
+#       * no Secrets, no Helm write, no port-forward, no RBAC/webhook views,
+#       * disableExec removes pods/exec from the ServiceAccount and turns off
+#         terminals, debug shells and the MCP exec_pod tool,
+#       * --mcp-read-only drops the MCP write tools (restart, scale, apply,
+#         rollback, drain) so agents only get read tools, even though RBAC
+#         would refuse them anyway.
+#   - Timeline persists to SQLite on a local-path PVC so "what changed while
+#     I wasn't looking" survives pod restarts. local-path (not nas-nfs) because
+#     SQLite file locking over NFS is unreliable; same choice as open-webui.
+#     maxSize stays below the PVC size so Radar prunes before the disk fills.
+#   - usageReporting is explicitly off: no telemetry leaves the homelab.
+#   - TLS reuses the reflector-replicated priv-wildcard-tls secret and the
+#     traefik-private ingress class; external-dns publishes the hostname to
+#     Cloudflare pointing at traefik-private's Tailscale IP.
+
+disableExec: true
+
+rbac:
+  secrets: false
+  podExec: false
+  portForward: false
+  helm: false
+  podLogs: true
+
+mcp:
+  enabled: true
+  execTools: false
+  httpTools: false
+
+extraArgs:
+  - --mcp-read-only
+
+usageReporting:
+  enabled: false
+
+timeline:
+  storage: sqlite
+  retention: 168h
+  maxSize: 1500Mi
+
+persistence:
+  enabled: true
+  storageClassName: local-path
+  accessMode: ReadWriteOnce
+  size: 2Gi
+
+# Requests sized for a 4-node homelab; the chart's 1Gi memory limit is kept.
+resources:
+  requests:
+    cpu: 50m
+    memory: 192Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+ingress:
+  enabled: true
+  className: traefik-private
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  hosts:
+    - host: radar.priv.mlops-club.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: priv-wildcard-tls
+      hosts:
+        - radar.priv.mlops-club.org
