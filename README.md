@@ -27,8 +27,9 @@ graph TD
     end
 
     %% ── OBSERVABILITY ────────────────────────────────────────────
-    subgraph obs [Observability · opentelemetry-* + kube-state-metrics]
+    subgraph obs [Observability · opentelemetry-* + kube-state-metrics + radar]
         KSM[kube-state-metrics<br/><sub>v7.4.0</sub>]:::release
+        RADAR[radar<br/><sub>radar · v1.20.2</sub>]:::release
         BS_SEC{{Secret:<br/>betterstack-sandbox-ingest-token}}:::hook
         OTEL_OP[opentelemetry-operator<br/><sub>v0.115.0</sub>]:::release
         OTEL_COL{{OpenTelemetryCollector:<br/>gateway + RBAC}}:::hook
@@ -92,6 +93,9 @@ graph TD
 
     NFS --> HAR
     TP --> HAR
+
+    %% Radar needs traefik-private (ingress class + priv-wildcard-tls).
+    TP --> RADAR
 
     %% OpenTelemetry Operator needs cert-manager (webhook TLS) and
     %% gpu-operator (provides dcgm-exporter Service to scrape).

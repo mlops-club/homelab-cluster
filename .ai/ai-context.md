@@ -82,6 +82,7 @@ homelab-cluster/
 │   └── seminary-feedback/      # Feedback collection app
 ├── aws/                        # AWS CDK infrastructure (DR/cloud fallback)
 ├── image-registry/             # Harbor private container registry
+├── radar/                      # Radar Kubernetes UI + read-only MCP (radar.priv.mlops-club.org)
 ├── bootstrap.sh                # Main cluster bootstrap script (idempotent)
 ├── BOOTSTRAP.md                # Step-by-step setup guide
 ├── prek.toml                   # Git hook configuration (secret scanning, conventional commits)

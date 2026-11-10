@@ -1,16 +1,16 @@
 # helmfile.yaml.gotmpl
 # Purpose: Declarative specification of all Helm releases in the homelab cluster
 # Scope: All infrastructure Helm charts — storage, networking, TLS, DNS, ingress, and container registry
-# Overview: Manages 12 Helm releases with dependency ordering, CRD lifecycle hooks,
+# Overview: Manages 13 Helm releases with dependency ordering, CRD lifecycle hooks,
 #     and secret injection from environment variables. Uses Go templating (.gotmpl extension
 #     required by helmfile v1) with requiredEnv for secrets and env/default for optional config.
 #     Presync hooks handle CRDs and secrets; postsync hooks handle Certificates, ClusterIssuers,
 #     StorageClasses, and Ingress resources that exist outside Helm's release tracking.
 #     Chart versions are pinned to prevent accidental upgrades.
 # Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, .env with credentials
-# Exports: 12 Helm releases across 8 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator, opentelemetry-operator-system, opentelemetry, kube-state-metrics)
+# Exports: 13 Helm releases across 9 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator, opentelemetry-operator-system, opentelemetry, kube-state-metrics, radar)
 # Environment: Production homelab cluster (k3s on 3 Intel NUCs)
-# Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml
+# Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml, radar/values.yaml
 # Implementation: helmfile v1 with Go templating, presync/postsync hooks for non-Helm resources
 #
 # IMPORTANT: When adding/removing releases or modifying hooks, update the dependency graph
@@ -48,6 +48,8 @@ repositories:
     url: https://open-telemetry.github.io/opentelemetry-helm-charts
   - name: prometheus-community
     url: https://prometheus-community.github.io/helm-charts
+  - name: skyhook
+    url: https://skyhook-io.github.io/helm-charts
 
 ---
 
@@ -343,6 +345,27 @@ releases:
           - "-c"
           - |
             kubectl apply -f otel-operator/collector.yaml
+
+  # Radar — read-only Kubernetes UI (topology, timeline, issues, Helm, logs)
+  # plus an MCP server for AI agents, at https://radar.priv.mlops-club.org
+  # (Tailnet only). The ServiceAccount is read-only and exec / MCP write
+  # tools are disabled; see radar/values.yaml for the security rationale.
+  # Timeline history persists to SQLite on a local-path PVC.
+  #
+  # Why this ordering:
+  #   - traefik-private must be deployed first (ingress class + the
+  #     reflector-replicated priv-wildcard-tls secret the Ingress uses).
+  - name: radar
+    namespace: radar
+    createNamespace: true
+    chart: skyhook/radar
+    version: 1.20.2
+    wait: true
+    timeout: 300
+    values:
+      - radar/values.yaml
+    needs:
+      - traefik-private/traefik-private
 
   # ==========================================================================
   # IMAGE REGISTRY
