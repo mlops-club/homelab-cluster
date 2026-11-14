@@ -130,6 +130,29 @@ spec:
     nodePort: 30096
     name: http
 ---
+# LAN entry point: http://jellyfin.home.mlops-club.org (home network only, no Tailscale needed).
+# MetalLB (layer 2) assigns the fixed IP below and has exactly one node answer ARP for it.
+# If that node dies, MetalLB moves the IP to another node within seconds, so the IP does not
+# depend on any node's own address. external-dns sees the hostname annotation and creates a
+# DNS-only Cloudflare A record jellyfin.home.mlops-club.org -> 192.168.50.220.
+# The IP must be outside the router's DHCP range. See apps/jellyfin/docs/lan-access.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin-lan
+  namespace: jellyfin
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: 192.168.50.220
+    external-dns.alpha.kubernetes.io/hostname: jellyfin.home.mlops-club.org
+spec:
+  type: LoadBalancer
+  selector:
+    app: jellyfin
+  ports:
+  - port: 80
+    targetPort: 8096
+    name: http
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
