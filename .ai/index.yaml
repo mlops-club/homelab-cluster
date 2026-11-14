@@ -19,6 +19,7 @@ documentation:
   files:
     - FILE_HEADER_STANDARDS.md (file documentation requirements)
     - ROADMAP_WORKFLOW.md (roadmap-driven development workflow)
+    - CLUSTER_HA_AUDIT.md (per-service single-point-of-failure inventory, uptime measurement plan, HA recommendations)
 
 howto:
   location: .ai/howto/
