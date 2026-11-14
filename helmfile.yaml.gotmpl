@@ -197,6 +197,9 @@ releases:
         value: "cloudflare_api_token"
       - name: "domainFilters[0]"
         value: "priv.{{ requiredEnv "CLOUDFLARE_DOMAIN" }}"
+      # LAN-only names: DNS-only A records pointing at MetalLB IPs on 192.168.50.0/24
+      - name: "domainFilters[1]"
+        value: "home.{{ requiredEnv "CLOUDFLARE_DOMAIN" }}"
       - name: "cloudflare.zoneIdFilter"
         value: {{ requiredEnv "CLOUDFLARE_ZONE_ID" | quote }}
 

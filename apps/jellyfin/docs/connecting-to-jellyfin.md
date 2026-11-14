@@ -16,6 +16,7 @@ Jellyfin is deployed on the homelab cluster as a private media server for stream
 | Method | URL / Address | When to Use |
 |--------|--------------|-------------|
 | **Tailscale (remote)** | `https://jellyfin.priv.mlops-club.org` | From anywhere on the tailnet |
+| **LAN name (smart TVs, home devices)** | `http://jellyfin.home.mlops-club.org` | From devices on the home network, no Tailscale needed (see [lan-access.md](lan-access.md)) |
 | **NodePort (local LAN)** | `http://<node-ip>:30096` | From devices on the home network |
 
 ---
@@ -53,7 +54,21 @@ Tailscale provides secure access from anywhere — home, work, or mobile.
 
 ---
 
-## Option 2: Connect via NodePort (Local Network)
+## Option 2: Connect via LAN Name (Smart TVs)
+
+On the home network, enter this server address in the Jellyfin app on a smart TV,
+streaming stick, or browser:
+
+```
+http://jellyfin.home.mlops-club.org
+```
+
+The name points at a MetalLB floating IP (`192.168.50.220`) that moves between nodes
+automatically. See [lan-access.md](lan-access.md) for how it works.
+
+---
+
+## Option 3: Connect via NodePort (Local Network)
 
 For devices on the same LAN as the cluster (192.168.50.x subnet), you can connect
 directly via NodePort without Tailscale.

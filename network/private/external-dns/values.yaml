@@ -16,4 +16,4 @@ txtOwnerId: k3s-cluster
 # - env[0].valueFrom.secretKeyRef.key=cloudflare_api_token
 # - cloudflare.zoneIdFilter=${CLOUDFLARE_ZONE_ID}
 # - domainFilters[0]=priv.mlops-club.org (only manage Tailscale services, not Cloudflare Tunnel services)
-
+# - domainFilters[1]=home.mlops-club.org (LAN-only names for MetalLB LoadBalancer services)
