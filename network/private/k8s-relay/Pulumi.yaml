@@ -1,0 +1,10 @@
+# Pulumi.yaml
+# Purpose: Pulumi project definition for k8s-relay (Lightsail peer relay)
+# Scope: Project metadata and Python/uv runtime selection
+# Related: __main__.py (program), run (lifecycle script)
+name: k8s-relay
+description: Lightsail peer relay for the private network
+runtime:
+  name: python
+  options:
+    toolchain: uv

@@ -1,0 +1,6 @@
+encryptionsalt: v1:n3whgCVMNCM=:v1:pi7bbGvio/K24sNr:Uq1oN093I1P8awjnErAXDPsEZvIJPA==
+config:
+  aws:region: us-west-2
+  k8s-relay:bundle: large_3_0
+  k8s-relay:authKey:
+    secure: v1:YiKqWQoFl1ZdxiKJ:bo3ZcqZb5QpJJ9xf1PT4KTV8BRJIqAHf54mxflGVa3NivJc97NMIKixbEmpawHgpVprr0lAXeXGUlfs/9cQJEPpF/LdRB0xl8W5x2T8=
