@@ -405,3 +405,16 @@ releases:
               --from-literal=HARBOR_SECRET_KEY="${HARBOR_SECRET_KEY}" \
               --namespace image-registry \
               --dry-run=client -o yaml | kubectl apply -f -
+      # Stop kubelet from recursively re-applying fsGroup=999 (chmod g+rwx,
+      # setgid) to the Postgres data dir on every remount (e.g. node reboot).
+      # That turns PGDATA into 2770, which Postgres rejects ("invalid
+      # permissions"), and the chart's chmod-700 init container only re-runs
+      # on pod creation. The chart hard-codes the pod securityContext, so patch it.
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            kubectl patch statefulset harbor-database -n image-registry --type=json \
+              -p '[{"op":"add","path":"/spec/template/spec/securityContext/fsGroupChangePolicy","value":"OnRootMismatch"}]'
