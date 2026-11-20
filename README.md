@@ -77,7 +77,9 @@ graph TD
     subgraph registry [Image Registry · image-registry]
         HAR_SEC{{Secret: harbor-admin}}:::hook
         HAR[harbor<br/><sub>v1.18.1</sub>]:::release
+        HAR_DB_PATCH{{Patch: StatefulSet harbor-database<br/>fsGroupChangePolicy=OnRootMismatch}}:::hook
         HAR_SEC -- presync --> HAR
+        HAR -- postsync --> HAR_DB_PATCH
     end
 
     %% ── INTER-RELEASE DEPENDENCIES (needs) ───────────────────────
