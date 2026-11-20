@@ -20,6 +20,8 @@ documentation:
     - FILE_HEADER_STANDARDS.md (file documentation requirements)
     - ROADMAP_WORKFLOW.md (roadmap-driven development workflow)
     - CLUSTER_HA_AUDIT.md (per-service single-point-of-failure inventory, uptime measurement plan, HA recommendations)
+    - adr/README.md (index of architecture decision records)
+    - adr/0001-outside-in-monitoring/research.md (outside-in monitoring, SLO and alerting tool research with annotated pricing evidence)
 
 howto:
   location: .ai/howto/
