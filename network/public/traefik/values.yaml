@@ -53,6 +53,10 @@ tls:
 providers:
   kubernetesIngress:
     namespaces: []  # Empty array means watch all namespaces
+    # Both IngressClasses (traefik-public, traefik-private) share the controller
+    # traefik.io/ingress-controller. Without this, each Traefik claims every
+    # Ingress of both classes and they overwrite each other's status.loadBalancer.
+    ingressClass: traefik-public
 
 # Enable access logs for debugging
 accessLog:
@@ -67,4 +71,3 @@ accessLog:
         Host: keep
         X-Forwarded-For: keep
         X-Forwarded-Host: keep
-

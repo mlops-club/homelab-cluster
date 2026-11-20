@@ -3,6 +3,13 @@ ingressClass:
   name: traefik-private
   isDefaultClass: false
 
+# Both IngressClasses (traefik-public, traefik-private) share the controller
+# traefik.io/ingress-controller. Without this, each Traefik claims every
+# Ingress of both classes and they overwrite each other's status.loadBalancer.
+providers:
+  kubernetesIngress:
+    ingressClass: traefik-private
+
 service:
   type: LoadBalancer
   loadBalancerClass: tailscale
@@ -60,4 +67,3 @@ additionalArguments:
   - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
   - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
   - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
-
