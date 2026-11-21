@@ -4,7 +4,7 @@
 #   24 h range, so the dashboard opens on the last 24 h
 # Overview: An overview row, then one row per page. Each page row: its screenshot (a text panel, image served from
 #   this branch on raw.githubusercontent.com, like status_dashboard.tf), p75 FCP / LCP / TTFB of hard loads that
-#   landed on the page (span.ce.entry_page), p75 INP / CLS while on it (span.ce.page), page views and p75 time to
+#   landed on the page (resource.entry_page.hash), p75 INP / CLS while on it (span.ce.page), page views and p75 time to
 #   ready (page_view spans), backend p95 latency and errors of the API calls made from the page (server spans carry
 #   span.ce.page from the browser's baggage), breakdowns by user, catalog or rule, and deployment, and a table of
 #   the page's recent page-view traces. Thresholds are Google's web-vitals good / needs-improvement bounds
@@ -18,7 +18,7 @@ locals {
 
   # page = ce.page value; by = the domain breakdown that makes sense on that page
   pages = [
-    { id = "catalogs", title = "Catalog picker", by = "span.user.id", by_title = "user", what = "The home page: every catalog with its pages, rules approved and score." },
+    { id = "catalogs", title = "Catalog picker", by = "span.ce.page_view.kind", by_title = "hard / soft load", what = "The home page: every catalog with its pages, rules approved and score." },
     { id = "rules", title = "Rules", by = "span.ce.rule.id", by_title = "rule", what = "Review a rule's values against the saved page; mark ✓ / ✕, approve a rule." },
     { id = "records", title = "Records", by = "span.ce.catalog", by_title = "catalog", what = "One course at a time: every property the rules extracted for it." },
     { id = "compare", title = "Compare", by = "span.ce.catalog", by_title = "catalog", what = "Two ruleset versions side by side: which values changed." },
@@ -27,12 +27,24 @@ locals {
   ]
 
   vitals = [
-    { name = "FCP", attr = "fcp.value", unit = "ms", dec = 0, good = 1800, poor = 3000, scope = "entry" },
-    { name = "LCP", attr = "lcp.value", unit = "ms", dec = 0, good = 2500, poor = 4000, scope = "entry" },
-    { name = "TTFB", attr = "ttfb.value", unit = "ms", dec = 0, good = 800, poor = 1800, scope = "entry" },
-    { name = "INP", attr = "inp.value", unit = "ms", dec = 0, good = 200, poor = 500, scope = "page" },
-    { name = "CLS", attr = "cls.value", unit = "none", dec = 3, good = 0.1, poor = 0.25, scope = "page" },
+    # TraceQL's quantile_over_time skips float attributes; TTFB and CLS are floats, so the web app adds integer copies
+    # (ce.ttfb.value_us, ce.cls.value_milli: builds from 3b9e67b on)
+    { name = "FCP", title = "p75 FCP", attr = "fcp.value", unit = "ms", dec = 0, good = 1800, poor = 3000, scope = "entry" },
+    { name = "LCP", title = "p75 LCP", attr = "lcp.value", unit = "ms", dec = 0, good = 2500, poor = 4000, scope = "entry" },
+    { name = "TTFB", title = "p75 TTFB", attr = "ce.ttfb.value_us", unit = "µs", dec = 0, good = 800000, poor = 1800000, scope = "entry" },
+    { name = "INP", title = "p75 INP", attr = "inp.value", unit = "ms", dec = 0, good = 200, poor = 500, scope = "page" },
+    { name = "CLS", title = "p75 CLS ×1000", attr = "ce.cls.value_milli", unit = "none", dec = 0, good = 100, poor = 250, scope = "page" },
   ]
+
+  # TraceQL metrics name series by their label set ({p=0.75, span.user.id="OTel Tester"}): keep the last label's value
+  label_only = [{ id = "renameByRegex", options = { regex = ".*=\"([^\"]*)\"}$", renamePattern = "$1" } }]
+
+  # Hard-load vitals (FCP, LCP, TTFB) by the page the browser landed on: the Web SDK's resource attribute
+  # entry_page.hash (TTFB is reported before the app opens its first page view, so span.ce.entry_page can be missing).
+  # TraceQL regexes are anchored
+  entry_re = { for p in local.pages : p.id => (p.id == "catalogs"
+    ? "resource.entry_page.hash =~ \"(#/?)?\""
+  : "resource.entry_page.hash =~ \"#/c/[^/]+/${p.id}([/?].*)?\"") }
 
   row_h = 25 # height of one page's block: header, screenshot + stats, breakdowns, traces table
 
@@ -48,10 +60,11 @@ locals {
 
     # web vitals: one stat each (instant p75 over the dashboard range)
     [for j, v in local.vitals : {
-      id      = 100 * (i + 1) + 10 + j, type = "stat", title = "p75 ${v.name}", datasource = local.tempo
-      gridPos = { x = 7 + (j % 3) * 3, y = 10 + i * local.row_h + floor(j / 3) * 4, w = 3, h = j < 3 ? 4 : 7 }
+      id          = 100 * (i + 1) + 10 + j, type = "stat", title = v.title, datasource = local.tempo
+      description = v.scope == "entry" ? "Hard loads that landed on this page (resource.entry_page.hash)" : "Reported while this page was shown. No data: none reported (INP needs an interaction) or every value was 0 (TraceQL quantiles skip zeros)"
+      gridPos     = { x = 7 + (j % 3) * 3, y = 10 + i * local.row_h + floor(j / 3) * 4, w = 3, h = j < 3 ? 4 : 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
-      query = "{${local.web} && name=\"${v.name}\" && span.ce.${v.scope == "entry" ? "entry_page" : "page"}=\"${p.id}\"} | quantile_over_time(span.${v.attr}, .75)" }]
+      query = "{${local.web} && name=\"${v.name}\" && ${v.scope == "entry" ? local.entry_re[p.id] : "span.ce.page=\"${p.id}\""}} | quantile_over_time(span.${v.attr}, .75)" }]
       options = { colorMode = "background", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
       fieldConfig = { defaults = { unit = v.unit, decimals = v.dec, noValue = "no data", thresholds = { mode = "absolute",
       steps = [{ color = "green", value = null }, { color = "orange", value = v.good }, { color = "red", value = v.poor }] } } }
@@ -89,8 +102,9 @@ locals {
       gridPos = { x = 16, y = 14 + i * local.row_h, w = 8, h = 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.backend} && kind=server && span.ce.page=\"${p.id}\"} | quantile_over_time(duration, .95) by (span.http.route)" }]
-      options     = { orientation = "horizontal", displayMode = "basic", showUnfilled = true, reduceOptions = { calcs = ["lastNotNull"] } }
-      fieldConfig = { defaults = { unit = "s", decimals = 3, displayName = "$${__field.labels[\"span.http.route\"]}" } }
+      options         = { orientation = "horizontal", displayMode = "basic", showUnfilled = true, reduceOptions = { calcs = ["lastNotNull"] } }
+      fieldConfig     = { defaults = { unit = "s", decimals = 3, color = { mode = "fixed", fixedColor = "blue" } } }
+      transformations = local.label_only
     },
     # breakdowns: user, catalog or rule, deployment (commit / image tag)
     [for k, b in [
@@ -102,8 +116,9 @@ locals {
       gridPos = { x = k * 8, y = 21 + i * local.row_h, w = 8, h = 5 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.web} && name=\"page_view\" && span.ce.page=\"${p.id}\"} | quantile_over_time(span.ce.page.ready.duration_ms, .75) by (${b.by})" }]
-      options     = { orientation = "horizontal", displayMode = "basic", showUnfilled = true, reduceOptions = { calcs = ["lastNotNull"] } }
-      fieldConfig = { defaults = { unit = "ms", decimals = 0, displayName = "$${__field.labels[\"${b.by}\"]}" } }
+      options         = { orientation = "horizontal", displayMode = "basic", showUnfilled = true, reduceOptions = { calcs = ["lastNotNull"] } }
+      fieldConfig     = { defaults = { unit = "ms", decimals = 0, color = { mode = "fixed", fixedColor = "purple" } } }
+      transformations = local.label_only
     }],
     {
       id      = 100 * (i + 1) + 40, type = "table", title = "Recent ${p.title} page views (click a trace ID for the browser → server trace)", datasource = local.tempo
@@ -115,20 +130,22 @@ locals {
 
   overview = [
     { id = 1, type = "text", title = "", transparent = true, gridPos = { x = 0, y = 0, w = 24, h = 2 },
-    options = { mode = "markdown", content = "**CTDL Golden Rules Studio, OpenTelemetry POC** (isolated instance, `deployment.environment.name = otel-poc`). All panels are TraceQL / TraceQL metrics on Tempo: no metrics store. Web vitals of hard loads are grouped by the page the browser landed on (`span.ce.entry_page`); INP and CLS by the page shown when reported (`span.ce.page`). Grafana Cloud limits TraceQL metrics to 24 h." } },
+    options = { mode = "markdown", content = "**CTDL Golden Rules Studio, OpenTelemetry POC** (isolated instance, `deployment.environment.name = otel-poc`). All panels are TraceQL / TraceQL metrics on Tempo: no metrics store. Web vitals of hard loads are grouped by the page the browser landed on (`resource.entry_page.hash`); INP and CLS by the page shown when reported (`span.ce.page`). Grafana Cloud limits TraceQL metrics to 24 h." } },
     {
       id      = 2, type = "timeseries", title = "Page views by page", datasource = local.tempo
       gridPos = { x = 0, y = 2, w = 12, h = 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "range",
       query = "{${local.web} && name=\"page_view\"} | count_over_time() by (span.ce.page)" }]
-      fieldConfig = { defaults = { unit = "short", displayName = "$${__field.labels[\"span.ce.page\"]}", custom = { drawStyle = "bars", fillOpacity = 70, stacking = { mode = "normal" } } } }
+      transformations = local.label_only
+      fieldConfig     = { defaults = { unit = "short", custom = { drawStyle = "bars", fillOpacity = 70, stacking = { mode = "normal" } } } }
     },
     {
       id      = 3, type = "timeseries", title = "Backend p95 latency by route", datasource = local.tempo
       gridPos = { x = 12, y = 2, w = 12, h = 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "range",
       query = "{${local.backend} && kind=server} | quantile_over_time(duration, .95) by (span.http.route)" }]
-      fieldConfig = { defaults = { unit = "s", displayName = "$${__field.labels[\"span.http.route\"]}" } }
+      transformations = local.label_only
+      fieldConfig     = { defaults = { unit = "s" } }
     },
   ]
 }

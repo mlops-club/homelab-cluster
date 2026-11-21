@@ -1,0 +1,10 @@
+  training-uark-edu-portal-training: 600/1012 files
+  training-uark-edu-portal-training: 800/1012 files
+  training-uark-edu-portal-training: 1000/1012 files
+catalog training-uark-edu-portal-training · crawl 2026-10-22T21-04-51Z · studio_files 462 · pages_to_copy 550 · pages_total 550 · annotations appended 291542 bytes · manifest merged
+  catalog-marshall-edu: 1600/2196 files
+  catalog-marshall-edu: 1800/2196 files
+  catalog-marshall-edu: 2000/2196 files
+catalog catalog-marshall-edu · crawl 2026-10-20T13-18-30Z · studio_files 368 · pages_to_copy 1828 · pages_total 1828 · annotations appended 1535730 bytes · manifest merged
+training-uark-edu-portal-training 236 files 7.7 MB
+catalog-marshall-edu 446 files 122.4 MB

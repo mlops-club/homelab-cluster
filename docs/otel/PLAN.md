@@ -43,7 +43,9 @@ Studio (FastAPI) ──── OTLP http :4318 ───────────�
                                                                           k8s.cluster.name, drop fast polls/assets
 ```
 
-- **Browser** (lazy chunk, only when `GET /api/telemetry` returns an endpoint): `page_view` span per route
+- **Browser** (lazy chunk, only when the server configures it; *(as built)* the config is inlined in `index.html`
+  and telemetry starts before the first render, after a first version that fetched it missed a hard load's first
+  requests): `page_view` span per route
   (ready time, API counts), one client span per API call carrying `traceparent` + `baggage`, plus the SDK's
   vitals and error spans.
 - **Server**: one wide server span per request (who, what, size, storage roll-ups, error detail); sub-spans
@@ -75,11 +77,12 @@ SAS **locally, in one process, with writes disabled in code**, and the instance 
 1. Backend telemetry module, middleware, sub-spans; tests (ctdl-xtra) ✔
 2. Web telemetry: facade + lazy chunk; tests ✔
 3. Local end-to-end with a collector in Podman: connected traces, session ids, noise ✔
-4. Deploy repo `otel/`: Dockerfile, build/deploy/setup/seed/teardown scripts, collector config, manifest, workflow
-5. Grafana Cloud OTLP token *(as built: via the stack's auth-app proxy, see write-up)*
-6. Deploy, seed, run `bench/otel_tour.py` (two users, three rounds, both catalogs), screenshots
-7. Terraform dashboard (`monitoring/terraform-studio-otel/`), one section per page
-8. Write-up, attribute table, volume estimate, teardown
+4. Deploy repo `otel/`: Dockerfile, build/deploy/setup/seed/teardown scripts, collector config, manifest, workflow ✔
+5. Grafana Cloud OTLP token *(as built: via the stack's auth-app proxy, see write-up)* ✔
+6. Deploy, seed, run `bench/otel_tour.py` (two users, three rounds, both catalogs), screenshots ✔ *(as built: twice,
+   on builds `6308326` and `3b9e67b`; images pushed from inside the cluster)*
+7. Terraform dashboard (`monitoring/terraform-studio-otel/`), one section per page ✔
+8. Write-up, attribute table, volume estimate, teardown ✔
 
 ## 6. Decisions under ambiguity
 
