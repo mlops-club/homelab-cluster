@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Purpose: Run terraform for the Studio OTel POC dashboard with credentials from the repo .env, without echoing them
+# Usage: ./tf init | ./tf plan | ./tf apply | ./tf destroy
+# Overview: Same pattern as monitoring/terraform/tf, but this root only needs the stack service-account token.
+#   HOMELAB_ENV overrides the .env path (default: the repo root's .env). State stays local and gitignored.
+set -euo pipefail
+cd "$(dirname "$0")"
+set -a; source "${HOMELAB_ENV:-../../.env}"; set +a
+export GRAFANA_AUTH="$GRAFANA_SA_TOKEN"
+exec terraform "$@"
