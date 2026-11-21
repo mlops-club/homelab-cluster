@@ -1,0 +1,5 @@
+$ query grafanacloud-usage: grafanacloud_sm_billable_check_executions_per_second
+  (protocol and scripted checks run only on the private probe homelab-tailnet-laptop)
+  check_class=browser   0.00000/s
+  check_class=protocol  0.04583/s
+  check_class=scripted  0.00417/s

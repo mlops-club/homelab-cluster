@@ -1,0 +1,33 @@
+$ k6 run -q --secret-source=file=secrets.txt monitoring/checks/jellyfin-login.js
+checks_succeeded...: 100.00% 4 out of 4
+✓ login succeeds
+✓ libraries listed
+✓ library has media
+✓ media bytes served from NAS
+http_req_duration..............: avg=118.49ms min=32.68ms  med=85.1ms   max=244.91ms p(90)=215.3ms  p(95)=230.1ms
+
+$ k6 run -q --secret-source=file=secrets.txt monitoring/checks/navidrome-login.js
+checks_succeeded...: 100.00% 5 out of 5
+✓ login succeeds
+✓ music folders listed
+✓ library has albums
+✓ album has tracks
+✓ track bytes served from NAS
+http_req_duration..............: avg=64.12ms  min=31.85ms  med=41.31ms  max=146.52ms p(90)=113.67ms p(95)=130.1ms
+
+$ k6 run -q --secret-source=file=secrets.txt monitoring/checks/immich-login.js
+checks_succeeded...: 100.00% 4 out of 4
+✓ login succeeds
+✓ canary photo found
+✓ thumbnail served
+✓ original bytes served from NAS
+http_req_duration..............: avg=105.47ms min=55.55ms  med=117.74ms max=155.47ms p(90)=149.73ms p(95)=152.6ms
+
+$ k6 run -q --secret-source=file=secrets.txt monitoring/checks/audiobookshelf-login.js
+checks_succeeded...: 100.00% 5 out of 5
+✓ login succeeds
+✓ libraries listed
+✓ library has books
+✓ book has audio
+✓ audio bytes served from NAS
+http_req_duration..............: avg=139.63ms min=98.57ms  med=127.53ms max=205.89ms p(90)=190.3ms  p(95)=198.1ms

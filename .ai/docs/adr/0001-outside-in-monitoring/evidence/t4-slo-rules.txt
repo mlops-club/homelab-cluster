@@ -1,0 +1,3 @@
+- Jellyfin availability - Error Budget Burn Rate is High | for 2m | labels {'grafana_slo_severity': 'warning', 'service': 'jellyfin'}
+- Jellyfin availability - Error Budget Burn Rate is Very High | for 2m | labels {'grafana_slo_severity': 'critical', 'service': 'jellyfin'}
+- grafana_slo_info | for 0s | labels {'service': 'jellyfin'}

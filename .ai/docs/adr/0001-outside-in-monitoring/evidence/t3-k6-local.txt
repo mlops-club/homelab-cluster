@@ -1,0 +1,38 @@
+
+
+  █ THRESHOLDS
+
+    checks
+    ✓ 'rate==1' rate=100.00%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 1       0.323463/s
+    checks_succeeded...: 100.00% 1 out of 1
+    checks_failed......: 0.00%   0 out of 1
+
+    ✓ audiobookshelf login page
+
+    EXECUTION
+    iteration_duration..........: avg=2.59s    min=2.59s   med=2.59s    max=2.59s   p(90)=2.59s    p(95)=2.59s
+    iterations..................: 1      0.323463/s
+    vus.........................: 1      min=1       max=1
+    vus_max.....................: 1      min=1       max=1
+
+    NETWORK
+    data_received...............: 0 B    0 B/s
+    data_sent...................: 0 B    0 B/s
+
+    BROWSER
+    browser_data_received.......: 833 kB 269 kB/s
+    browser_data_sent...........: 9.6 kB 3.1 kB/s
+    browser_http_req_duration...: avg=220.03ms min=11.99ms med=170.08ms max=526.6ms p(90)=432.56ms p(95)=452.14ms
+    browser_http_req_failed.....: 0.00%  0 out of 17
+
+    WEB_VITALS
+    browser_web_vital_cls.......: avg=0        min=0       med=0        max=0       p(90)=0        p(95)=0
+    browser_web_vital_fcp.......: avg=1.15s    min=1.15s   med=1.15s    max=1.15s   p(90)=1.15s    p(95)=1.15s
+    browser_web_vital_inp.......: avg=0s       min=0s      med=0s       max=0s      p(90)=0s       p(95)=0s
+    browser_web_vital_lcp.......: avg=1.47s    min=1.47s   med=1.47s    max=1.47s   p(90)=1.47s    p(95)=1.47s
+    browser_web_vital_ttfb......: avg=237.3ms  min=237.3ms med=237.3ms  max=237.3ms p(90)=237.3ms  p(95)=237.3ms

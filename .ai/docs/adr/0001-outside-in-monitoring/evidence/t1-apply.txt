@@ -1,0 +1,14 @@
+grafana_synthetic_monitoring_probe.tailnet_laptop: Creating...
+grafana_synthetic_monitoring_probe.tailnet_laptop: Creation complete after 0s [id=547]
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Creating...
+grafana_synthetic_monitoring_check.private_health["harbor"]: Creating...
+grafana_synthetic_monitoring_check.private_health["immich"]: Creating...
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Creation complete after 0s [id=69015]
+grafana_synthetic_monitoring_check.private_health["harbor"]: Creation complete after 0s [id=69016]
+grafana_synthetic_monitoring_check.private_health["immich"]: Creation complete after 0s [id=69017]
+
+Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+tailnet_laptop_probe_token = <sensitive>

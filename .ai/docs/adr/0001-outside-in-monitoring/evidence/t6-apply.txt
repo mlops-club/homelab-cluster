@@ -1,0 +1,9 @@
+grafana_contact_point.discord: Creating...
+grafana_rule_group.probe_heartbeat: Modifying... [id=0:cg4xdnp0h14w0f:probe-heartbeat]
+grafana_slo.jellyfin_availability: Modifying... [id=luu9i5cuue5gbhg50vfra]
+grafana_contact_point.discord: Creation complete after 0s [id=0:homelab-discord]
+grafana_notification_policy.root: Creating...
+grafana_slo.jellyfin_availability: Modifications complete after 0s [id=luu9i5cuue5gbhg50vfra]
+grafana_notification_policy.root: Creation complete after 0s [id=0:policy]
+grafana_rule_group.probe_heartbeat: Modifications complete after 0s [id=1:cg4xdnp0h14w0f:probe-heartbeat]
+Apply complete! Resources: 2 added, 2 changed, 0 destroyed.

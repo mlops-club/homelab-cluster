@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Purpose: Run terraform with credentials from the repo .env and ~/credentials, without echoing them
+# Usage: ./tf plan | ./tf apply | ./tf output ...
+# Overview: Monitoring-user passwords come from ~/credentials/homelab-monitoring.env and reach Terraform as
+#   ephemeral TF_VAR_* values, written only to Grafana's secret store (never to state or code)
+set -euo pipefail
+cd "$(dirname "$0")"
+set -a; source ../../.env; source "$HOME/credentials/homelab-monitoring.env"; source "$HOME/credentials/homelab-alerting.env"; set +a
+export GRAFANA_AUTH="$GRAFANA_SA_TOKEN" GRAFANA_SM_ACCESS_TOKEN="$GRAFANA_SM_TOKEN"
+export TF_VAR_grafana_stack_id="$GRAFANA_STACK_ID"
+export TF_VAR_discord_alerts_webhook_url="$DISCORD_ALERTS_WEBHOOK_URL"
+export TF_VAR_monitor_passwords="{\"jellyfin\":\"$JELLYFIN_MONITOR_PASSWORD\",\"navidrome\":\"$NAVIDROME_MONITOR_PASSWORD\",\"immich\":\"$IMMICH_MONITOR_PASSWORD\",\"audiobookshelf\":\"$ABS_MONITOR_PASSWORD\"}"
+exec terraform "$@"
