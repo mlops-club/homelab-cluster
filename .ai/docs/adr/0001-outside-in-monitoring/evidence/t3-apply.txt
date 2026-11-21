@@ -1,0 +1,76 @@
+data.grafana_synthetic_monitoring_probes.public: Reading...
+grafana_synthetic_monitoring_probe.tailnet_laptop: Refreshing state... [id=547]
+data.grafana_synthetic_monitoring_probes.public: Read complete after 0s [id=probes]
+grafana_synthetic_monitoring_check.media_health: Refreshing state... [id=69018]
+grafana_synthetic_monitoring_check.private_health["harbor"]: Refreshing state... [id=69016]
+grafana_synthetic_monitoring_check.private_health["immich"]: Refreshing state... [id=69017]
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Refreshing state... [id=69015]
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # grafana_synthetic_monitoring_check.audiobookshelf_browser will be created
+  + resource "grafana_synthetic_monitoring_check" "audiobookshelf_browser" {
+      + alert_sensitivity  = "none"
+      + basic_metrics_only = true
+      + enabled            = true
+      + frequency          = 900000
+      + id                 = (known after apply)
+      + job                = "audiobookshelf-browser"
+      + labels             = {
+          + "kind"    = "browser"
+          + "service" = "audiobookshelf"
+        }
+      + probes             = [
+          + 7,
+          + 15,
+        ]
+      + target             = "https://books.mlops-club.org/login"
+      + tenant_id          = (known after apply)
+      + timeout            = 60000
+
+      + channels (known after apply)
+
+      + settings {
+          + browser {
+              + script = <<-EOT
+                    // Purpose: Outside-in browser check of the public Audiobookshelf login page, with Web Vitals
+                    // Scope: Grafana POC test 3. Runs from a Grafana public probe; also runs locally with `k6 run`
+                    import { browser } from 'k6/browser';
+                    import { check } from 'k6';
+
+                    export const options = {
+                      scenarios: {
+                        ui: { executor: 'shared-iterations', options: { browser: { type: 'chromium' } } },
+                      },
+                      thresholds: { checks: ['rate==1'] },
+                    };
+
+                    export default async function () {
+                      const page = await browser.newPage();
+                      try {
+                        await page.goto('https://books.mlops-club.org/login', { waitUntil: 'networkidle' });
+                        const login = page.locator('input[type="password"]');
+                        await login.waitFor({ state: 'visible', timeout: 10000 });
+                        check(await page.title(), { 'audiobookshelf login page': (t) => t.toLowerCase().includes('audiobookshelf') });
+                      } finally {
+                        await page.close();
+                      }
+                    }
+                EOT
+            }
+        }
+    }
+
+Plan: 1 to add, 0 to change, 0 to destroy.
+grafana_synthetic_monitoring_check.audiobookshelf_browser: Creating...
+grafana_synthetic_monitoring_check.audiobookshelf_browser: Creation complete after 0s [id=69019]
+
+Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+tailnet_laptop_probe_token = <sensitive>

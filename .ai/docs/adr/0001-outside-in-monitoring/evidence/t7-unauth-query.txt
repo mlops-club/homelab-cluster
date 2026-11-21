@@ -1,0 +1,6 @@
+$ curl -X POST "$GRAFANA_URL/api/public/dashboards/$TOKEN/panels/1/query"   # no Authorization header
+   immich-health = 1
+   media-health = 1
+   audiobookshelf-browser = 1
+   harbor-health = 1
+   jellyfin-health = 1

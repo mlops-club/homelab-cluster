@@ -22,3 +22,8 @@
 
 # Ansible collection installs (created by ansible-galaxy)
 **/.ansible/
+# Terraform (state holds probe tokens)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

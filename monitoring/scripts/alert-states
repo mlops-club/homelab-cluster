@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Purpose: Print the state of Grafana-managed alert rules whose name matches a pattern
+# Usage: monitoring/scripts/alert-states 'POC|silent'
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+set -a; source .env; set +a
+read -r -d '' FMT <<'PY' || true
+import json, re, sys
+pat = re.compile(sys.argv[1])
+for g in json.load(sys.stdin)["data"]["groups"]:
+    for r in g["rules"]:
+        if pat.search(r["name"]):
+            inst = [(a["state"], a.get("activeAt", "")[:19]) for a in r.get("alerts", [])]
+            print(f"{r['state']:<9} {r['name']}  {inst}")
+PY
+curl -s -H "Authorization: Bearer $GRAFANA_SA_TOKEN" \
+  "$GRAFANA_URL/api/prometheus/grafana/api/v1/rules" | python3 -I -c "$FMT" "${1:-.}"

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Purpose: Run an instant PromQL query against the Grafana Cloud stack's Prometheus and print a table
+# Usage: monitoring/scripts/promql 'probe_success{probe="homelab-tailnet-laptop"}'
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+set -a; source .env; set +a
+read -r -d '' FMT <<'PY' || true
+import json, sys
+d = json.load(sys.stdin)
+if d.get("status") != "success":
+    sys.exit(json.dumps(d)[:500])
+rows = d["data"]["result"]
+want = ("__name__", "job", "probe", "service", "check", "group", "name", "url", "instance")
+keys = [k for k in want if any(k in r["metric"] for r in rows)]
+print("  ".join(f"{k:<24}" for k in keys) + "  value")
+for r in rows:
+    m = r["metric"]
+    print("  ".join(f"{m.get(k, ''):<24}" for k in keys) + "  " + r["value"][1])
+PY
+curl -s -G -H "Authorization: Bearer $GRAFANA_SA_TOKEN" \
+  "$GRAFANA_URL/api/datasources/proxy/uid/grafanacloud-prom/api/v1/query" \
+  --data-urlencode "query=$1" | python3 -I -c "$FMT"

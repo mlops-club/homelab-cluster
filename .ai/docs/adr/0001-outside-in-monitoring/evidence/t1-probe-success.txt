@@ -1,0 +1,5 @@
+$ monitoring/scripts/promql 'probe_success{probe="homelab-tailnet-laptop"}'
+__name__                  job                       probe                     instance                  service                 value
+probe_success             jellyfin-health           homelab-tailnet-laptop    https://jellyfin.priv.mlops-club.org/health  jellyfin                1
+probe_success             harbor-health             homelab-tailnet-laptop    https://cr.priv.mlops-club.org/api/v2.0/health  harbor                  1
+probe_success             immich-health             homelab-tailnet-laptop    https://photos.priv.mlops-club.org/api/server/ping  immich                  1

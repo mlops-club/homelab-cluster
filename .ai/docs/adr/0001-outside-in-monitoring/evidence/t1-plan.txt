@@ -1,0 +1,111 @@
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # grafana_synthetic_monitoring_check.private_health["harbor"] will be created
+  + resource "grafana_synthetic_monitoring_check" "private_health" {
+      + alert_sensitivity  = "none"
+      + basic_metrics_only = true
+      + enabled            = true
+      + frequency          = 60000
+      + id                 = (known after apply)
+      + job                = "harbor-health"
+      + labels             = {
+          + "kind"    = "health"
+          + "service" = "harbor"
+        }
+      + probes             = (known after apply)
+      + target             = "https://cr.priv.mlops-club.org/api/v2.0/health"
+      + tenant_id          = (known after apply)
+      + timeout            = 5000
+
+      + channels (known after apply)
+
+      + settings {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+    }
+
+  # grafana_synthetic_monitoring_check.private_health["immich"] will be created
+  + resource "grafana_synthetic_monitoring_check" "private_health" {
+      + alert_sensitivity  = "none"
+      + basic_metrics_only = true
+      + enabled            = true
+      + frequency          = 60000
+      + id                 = (known after apply)
+      + job                = "immich-health"
+      + labels             = {
+          + "kind"    = "health"
+          + "service" = "immich"
+        }
+      + probes             = (known after apply)
+      + target             = "https://photos.priv.mlops-club.org/api/server/ping"
+      + tenant_id          = (known after apply)
+      + timeout            = 5000
+
+      + channels (known after apply)
+
+      + settings {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+    }
+
+  # grafana_synthetic_monitoring_check.private_health["jellyfin"] will be created
+  + resource "grafana_synthetic_monitoring_check" "private_health" {
+      + alert_sensitivity  = "none"
+      + basic_metrics_only = true
+      + enabled            = true
+      + frequency          = 60000
+      + id                 = (known after apply)
+      + job                = "jellyfin-health"
+      + labels             = {
+          + "kind"    = "health"
+          + "service" = "jellyfin"
+        }
+      + probes             = (known after apply)
+      + target             = "https://jellyfin.priv.mlops-club.org/health"
+      + tenant_id          = (known after apply)
+      + timeout            = 5000
+
+      + channels (known after apply)
+
+      + settings {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+    }
+
+  # grafana_synthetic_monitoring_probe.tailnet_laptop will be created
+  + resource "grafana_synthetic_monitoring_probe" "tailnet_laptop" {
+      + auth_token              = (sensitive value)
+      + disable_browser_checks  = false
+      + disable_scripted_checks = false
+      + id                      = (known after apply)
+      + labels                  = {
+          + "host"    = "laptop"
+          + "network" = "tailnet"
+        }
+      + latitude                = 40.39
+      + longitude               = -111.85
+      + name                    = "homelab-tailnet-laptop"
+      + public                  = false
+      + region                  = "AMER"
+      + tenant_id               = (known after apply)
+    }
+
+Plan: 4 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + tailnet_laptop_probe_token = (sensitive value)
+
+─────────────────────────────────────────────────────────────────────────────
+
+Saved the plan to: t1.tfplan
+
+To perform exactly these actions, run the following command to apply:
+    terraform apply "t1.tfplan"

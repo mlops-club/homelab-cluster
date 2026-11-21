@@ -1,0 +1,12 @@
+$ monitoring/scripts/promql 'probe_browser_web_vital_fcp{job="audiobookshelf-browser"}'   # ms
+probe   value_ms
+Ohio    1508
+Oregon  936
+$ monitoring/scripts/promql 'probe_browser_web_vital_lcp{job="audiobookshelf-browser"}'   # ms
+probe   value_ms
+Ohio    1716
+Oregon  1000
+$ monitoring/scripts/promql 'probe_browser_web_vital_ttfb{job="audiobookshelf-browser"}'   # ms
+probe   value_ms
+Ohio    386.6
+Oregon  355.5
