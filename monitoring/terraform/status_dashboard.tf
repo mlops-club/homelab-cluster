@@ -2,7 +2,9 @@
 # Scope: Grafana POC test 7. Read-only, no variables (public dashboards don't support them)
 # Overview: One row per listener-facing service. Left: current state (UP / DOWN / NO DATA) and 24 h uptime.
 #   Right: one bar per check run, height = how long the run took; green passed, red failed, grey = no
-#   result arrived (probe, network or Grafana problem). Missing data never reads as healthy
+#   result arrived (probe, network or Grafana problem). Missing data never reads as healthy. Under each
+#   service, a collapsed row holds a step-by-step report (monitoring/reports/<job>.md) with screenshots
+#   served from the public GitHub repo
 
 locals {
   status_services = [
@@ -14,6 +16,11 @@ locals {
   ]
   prom  = { type = "prometheus", uid = "grafanacloud-prom" }
   row_h = 6
+  block = local.row_h + 2 # service row header + panels + collapsed report row
+  # Screenshots and links point at the public repo; switch docs_ref to "main" once the PR merges
+  docs_ref = "docs/adr-outside-in-monitoring"
+  repo_url = "https://github.com/mlops-club/homelab-cluster/blob/${local.docs_ref}"
+  img_url  = "https://raw.githubusercontent.com/mlops-club/homelab-cluster/${local.docs_ref}/.ai/docs/adr/0001-outside-in-monitoring/images/grafana-poc/steps"
   state_map = [{ type = "value", options = {
     "-1" = { text = "NO DATA", color = "#6e6e6e", index = 0 }
     "0"  = { text = "DOWN", color = "red", index = 1 }
@@ -21,9 +28,10 @@ locals {
   } }]
 
   status_panels = flatten([for i, s in local.status_services : [
+    { id = i * 10 + 5, type = "row", title = s.name, collapsed = false, panels = [], gridPos = { x = 0, y = i * local.block, w = 24, h = 1 } },
     {
       id      = i * 10 + 1, type = "stat", title = "${s.name}: now", datasource = local.prom
-      gridPos = { x = 0, y = i * local.row_h, w = 5, h = 3 }
+      gridPos = { x = 0, y = i * local.block + 1, w = 5, h = 3 }
       targets = [{ refId = "A", instant = true,
         # last result within ~1.3 check intervals; nothing at all means the probe or network is down
       expr = "min(last_over_time(probe_success{job=\"${s.job}\"}[20m])) or on() vector(-1)" }]
@@ -32,7 +40,7 @@ locals {
     },
     {
       id      = i * 10 + 2, type = "stat", title = "${s.name}: uptime, 24 h", datasource = local.prom
-      gridPos = { x = 0, y = i * local.row_h + 3, w = 5, h = 3 }
+      gridPos = { x = 0, y = i * local.block + 4, w = 5, h = 3 }
       targets = [{ refId = "A", instant = true,
       expr = "avg(avg_over_time(probe_success{job=\"${s.job}\"}[24h]))" }]
       options = { colorMode = "value", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
@@ -41,7 +49,7 @@ locals {
     },
     {
       id       = i * 10 + 3, type = "timeseries", title = "${s.name}: time per check run", datasource = local.prom
-      gridPos  = { x = 5, y = i * local.row_h, w = 19, h = local.row_h }
+      gridPos  = { x = 5, y = i * local.block + 1, w = 19, h = local.row_h }
       interval = s.every # one bar per check run
       targets = [
         { refId = "A", legendFormat = "Passed",
@@ -58,6 +66,15 @@ locals {
         overrides = [for o in [["Passed", "green"], ["Failed", "red"], ["No result", "#6e6e6e"]] :
         { matcher = { id = "byName", options = o[0] }, properties = [{ id = "color", value = { mode = "fixed", fixedColor = o[1] } }] }]
       }
+    },
+    {
+      id      = i * 10 + 6, type = "row", title = "${s.name}: what this check does (click to expand)", collapsed = true
+      gridPos = { x = 0, y = i * local.block + 1 + local.row_h, w = 24, h = 1 }
+      panels = [{
+        id      = i * 10 + 4, type = "text", title = "", transparent = true
+        gridPos = { x = 0, y = i * local.block + 2 + local.row_h, w = 24, h = 17 }
+        options = { mode = "markdown", content = templatefile("${path.module}/../reports/${s.job}.md", { img = local.img_url, repo = local.repo_url }) }
+      }]
     },
   ]])
 }
