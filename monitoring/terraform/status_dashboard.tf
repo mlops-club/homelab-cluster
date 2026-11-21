@@ -68,11 +68,11 @@ locals {
       }
     },
     {
-      id      = i * 10 + 6, type = "row", title = "${s.name}: what this check does (click to expand)", collapsed = true
+      id      = i * 10 + 6, type = "row", title = "${s.name}: how this check works (click to expand)", collapsed = true
       gridPos = { x = 0, y = i * local.block + 1 + local.row_h, w = 24, h = 1 }
       panels = [{
         id      = i * 10 + 4, type = "text", title = "", transparent = true
-        gridPos = { x = 0, y = i * local.block + 2 + local.row_h, w = 24, h = 17 }
+        gridPos = { x = 0, y = i * local.block + 2 + local.row_h, w = 24, h = 21 }
         options = { mode = "markdown", content = templatefile("${path.module}/../reports/${s.job}.md", { img = local.img_url, repo = local.repo_url }) }
       }]
     },

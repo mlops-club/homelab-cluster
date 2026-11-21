@@ -454,6 +454,19 @@ Rendered by a fresh headless Chromium with no Grafana cookies (`k6 browser`): HT
 
 ![Public Homelab status dashboard: per-service state, 24 h uptime and per-run duration bars](images/grafana-poc/t7-status-page.png)
 
+**Check reports.** Under each service, a collapsed row explains the check step by step: the API calls,
+what passes, what a red bar means, and screenshots of the equivalent screens. The text lives in
+[`monitoring/reports/`](../../../../monitoring/reports/) and Terraform loads it with `templatefile()`.
+A headless browser captured the screenshots, signed in as each `homelab-monitor` user with covers and
+titles blurred, and GitHub serves them to the public page.
+
+![Expanded "how this check works" report on the public dashboard](images/grafana-poc/t7-check-report.jpg)
+
+> **Synthetic, but API-level.** The login checks make the calls the apps make (sign in, list, stream);
+> they don't render or click the UI, so a broken button wouldn't fail them. Only `audiobookshelf-browser`
+> drives a real browser. Moving all four apps to browser checks at 15 min would cost about 11,904 browser
+> runs a month, which is over the 10k free.
+
 > **Gotchas:** panels need explicit `id`s or the public panel API returns
 > `publicdashboards.panelNotFound`; the provider ignores `id` when diffing, so adding them later needs
 > `./tf apply -replace=grafana_dashboard.status -replace=grafana_dashboard_public.status`. Replacing the

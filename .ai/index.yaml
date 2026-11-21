@@ -79,6 +79,7 @@ scripts:
   monitoring:
     terraform: monitoring/terraform/tf plan|apply (Grafana Cloud probes, checks, SLOs, alerts, status dashboard; credentials from .env)
     checks: k6 run monitoring/checks/<name>.js (same scripts Grafana runs)
+    reports: monitoring/reports/<check>.md (step-by-step check reports shown in collapsed rows on the status dashboard)
     promql: monitoring/scripts/promql '<query>' (instant query against the Grafana Cloud stack)
     alert_states: monitoring/scripts/alert-states '<regex>' (state of Grafana-managed alert rules)
     mcp_smoke: monitoring/scripts/mcp-smoke.py (drive mcp-grafana over stdio with the Viewer token)
