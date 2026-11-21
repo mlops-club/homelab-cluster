@@ -59,11 +59,12 @@ TraceQL and TraceQL metrics.
 Telemetry is **off unless configured**: without `OTEL_EXPORTER_OTLP_*ENDPOINT` the server initialises nothing and
 every helper is a no-op; the OTel packages are an optional extra (`uv sync --extra otel`), so the production image
 doesn't even contain them; without a browser endpoint `index.html` is served byte-for-byte as built and the 70 KB
-(gzip) OTel chunk is never fetched. The main bundle grows by 2.7 KB.
+(gzip) OTel chunk is never fetched. The main bundle grows by 2.7 KB, and the app renders one microtask later
+(it awaits an already-resolved promise); no other off-path difference.
 
 ## 2. The instrumentation (ctdl-xtra)
 
-Diff against the branch point `a78be91`: 24 files. The core is two modules.
+Diff against the branch point `a78be91`: 23 files (two of them lockfiles). The core is two modules.
 
 **Server** — `src/golden_datasets/telemetry.py`. The request middleware adds who, what and how much when the response
 ends (it must do so *before* the last body chunk: the instrumentation ends the span as that chunk goes out):
@@ -98,7 +99,7 @@ propagation.inject(ctx, headers, { set: (h, k, val) => h.set(k, val) });
 ```
 
 **Tests**: `tests/test_telemetry.py` (6 tests: off by default, one span per request, baggage allow-list, catalog and
-error attributes, excluded URLs, linked background jobs) and `web/src/telemetry/telemetry.test.ts` (16).
+error attributes, excluded URLs, linked background jobs) and `web/src/telemetry/telemetry.test.ts` (15: URL templates, page and action names, off without a config, reading the inlined config).
 
 ```text
 $ uv run pytest -q                 → 232 passed, 52 deselected
@@ -199,7 +200,7 @@ and a table of recent page-view traces (each trace ID opens the browser → serv
 
 | Panel | TraceQL (rules page) |
 |---|---|
-| p75 LCP | `{… && name="LCP" && span.ce.entry_page="rules"} \| quantile_over_time(span.lcp.value, .75)` |
+| p75 LCP | `{… && name="LCP" && resource.entry_page.hash =~ "#/c/[^/]+/rules([/?].*)?"} \| quantile_over_time(span.lcp.value, .75)` |
 | Page views | `{… && name="page_view" && span.ce.page="rules"} \| count_over_time()` |
 | p75 time to ready by rule | `{… && name="page_view" && span.ce.page="rules"} \| quantile_over_time(span.ce.page.ready.duration_ms, .75) by (span.ce.rule.id)` |
 | p95 backend latency by route | `{backend && kind=server && span.ce.page="rules"} \| quantile_over_time(duration, .95) by (span.http.route)` |
@@ -333,7 +334,7 @@ $ diff <pods before> <pods after>  →  PODS IDENTICAL
 | D6 | `user.id` vs `enduser.id` | `user.id`, `user.roles`, `session.id` | semconv 1.45 deprecates `enduser.*` |
 | D7 | Custom prefix | `ce.` everywhere, roll-ups as `ce.stats.*`, timings `*.duration_ms` | The brief; Honeycomb's agent-skills naming |
 | D8 | Browser auto-instrumentation | Honeycomb SDK for vitals, errors, browser and session; **no** fetch/XHR/document-load/click auto-instrumentation (and no Zone.js). The app makes one `page_view` span per route and one client span per API call itself | Few, wide spans; the auto fetch spans can't carry page context or roll-ups, and click spans are noisy. Our own fetch wrapper injects `traceparent` and baggage |
-| D9 | Web vitals in a hash-routed SPA | FCP/LCP/TTFB belong to hard loads: grouped by `ce.entry_page`. INP/CLS by `ce.page` at report time. Soft navigations get `page_view.ce.page.ready.duration_ms` instead | Browsers report FCP/LCP once per document; the tour hard-loads every page so each has its own |
+| D9 | Web vitals in a hash-routed SPA | FCP/LCP/TTFB belong to hard loads: grouped by the SDK's `resource.entry_page.hash` (TTFB arrives before the app's first page view, so `span.ce.entry_page` can be missing). INP/CLS by `ce.page` at report time. Soft navigations get `page_view.ce.page.ready.duration_ms` instead | Browsers report FCP/LCP once per document; the tour hard-loads every page so each has its own |
 | D10 | Telemetry off by default | Server: no endpoint → no SDK init, helpers no-op; `otel` is an optional extra (production image unchanged). Browser: the server inlines its config in `index.html` only when browser telemetry is configured; off, the file is served as built and the 70 KB (gzip) OTel chunk is never fetched; main bundle +2.7 KB | Production and local dev behave as before |
 | D11 | Browser → collector route | Same origin `/otlp` → collector's browser receiver (`traces_url_path: /otlp/v1/traces`); token stays in the collector | No CORS, no token in the browser. Trade-off: `/otlp` is unauthenticated (tailnet-only here). Production would want it behind the Studio's session (see Next) |
 | D12 | `k8s.*` on browser spans | Separate receivers/pipelines; `k8s_attributes` only on the backend pipeline | Browser spans arrive from the ingress controller: pod association would be wrong |
@@ -427,7 +428,7 @@ Stability is per semantic conventions **v1.45.0**. "Web SDK" = `@honeycombio/ope
 | `ce.page` | `rules` | custom (ce.) | all web, SV, SUB | web app (route); server via baggage |
 | `ce.page.template` | `#/c/{catalog}/rules/{id}` | custom (ce.) | all web | web app |
 | `ce.page_view.id` | `4982a7c90e3fdd28` | custom (ce.) | all web, SV | web app (the page view's span id); server via baggage |
-| `ce.entry_page` | `rules` | custom (ce.) | all web | web app (page of the hard load; groups FCP/LCP/TTFB) |
+| `ce.entry_page` | `rules` | custom (ce.) | all web | web app (page of the hard load, once the first page view opens) |
 | `ce.catalog` | `marshall` | custom (ce.) | all web, SV, SUB | web app (route); server: path parameter |
 | `ce.catalog.folder`, `ce.catalog.platform` | `catalog-marshall-edu`, `CourseLeaf` | custom (ce.) | SV, SUB, JOB | server middleware (catalog registry) |
 | `ce.rule.id` | `course-description` | custom (ce.) | PV, CL, SV, SUB | web app (route id); server: path/query parameter |
