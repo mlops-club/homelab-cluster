@@ -1,0 +1,51 @@
+{
+ "window": [
+  "2026-11-21T08:55:00Z",
+  "2026-11-21T09:47:53Z"
+ ],
+ "spans_by_service": {
+  "{'resource.service.name': '\"golden-dataset-studio\"'}": 2327,
+  "{'resource.service.name': '\"golden-dataset-studio-web\"'}": 3298
+ },
+ "spans_by_name": {
+  "{'name': '\"GET /api/catalogs/{catalog}/pages/{stem}/render\"'}": 950,
+  "{'name': '\"page_view\"'}": 537,
+  "{'name': '\"GET /api/agent-runs/config\"'}": 311,
+  "{'name': '\"GET /api/catalogs/{catalog}/rules/{rule_id}\"'}": 303,
+  "{'name': '\"GET /api/catalogs/{catalog}/rules/{rule_id}/rows\"'}": 296,
+  "{'name': '\"GET /api/session\"'}": 287,
+  "{'name': '\"GET /api/catalogs/{catalog}/annotators\"'}": 262,
+  "{'name': '\"GET /api/catalogs/{catalog}\"'}": 238,
+  "{'name': '\"GET /api/catalogs/{catalog}/rules\"'}": 232,
+  "{'name': '\"FCP\"'}": 197,
+  "{'name': '\"LCP\"'}": 197,
+  "{'name': '\"TTFB\"'}": 197,
+  "{'name': '\"CLS\"'}": 196,
+  "{'name': '\"GET /api/catalogs-summary\"'}": 174,
+  "{'name': '\"GET /api/catalogs/{catalog}/courses\"'}": 155,
+  "{'name': '\"GET /api/catalogs/{catalog}/discussion\"'}": 155,
+  "{'name': '\"GET /api/catalogs/{catalog}/pages/{stem}/overlay\"'}": 144,
+  "{'name': '\"GET /api/catalogs/{catalog}/compare\"'}": 104,
+  "{'name': '\"GET /api/catalogs/{catalog}/golden\"'}": 103,
+  "{'name': '\"GET /api/catalogs/{catalog}/extract-outputs\"'}": 102,
+  "{'name': '\"GET /{path:path}\"'}": 102,
+  "{'name': '\"GET /api/catalogs/{catalog}/courses/{course_key}\"'}": 91,
+  "{'name': '\"GET /api/catalogs/{catalog}/compare/records\"'}": 82,
+  "{'name': '\"GET /api/catalogs\"'}": 72,
+  "{'name': '\"INP\"'}": 66,
+  "{'name': '\"GET /api/profiles\"'}": 28,
+  "{'name': '\"POST /api/login\"'}": 14,
+  "{'name': '\"snapshot.load\"'}": 12,
+  "{'name': '\"sign_in\"'}": 11,
+  "{'name': '\"POST /api/catalogs/{catalog}/annotations\"'}": 2,
+  "{'name': '\"annotate\"'}": 2,
+  "{'name': '\"GET /api/catalogs/{catalog}/assets/{sha256}\"'}": 1,
+  "{'name': '\"POST /api/profiles\"'}": 1,
+  "{'name': '\"save_profile\"'}": 1
+ },
+ "page_views": {
+  "{'__name__': '\"count_over_time\"'}": 537
+ },
+ "bytes_received_usage_metric": 6828858,
+ "spans_received_usage_metric": 5495
+}

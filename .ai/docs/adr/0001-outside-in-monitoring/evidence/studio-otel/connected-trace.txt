@@ -1,0 +1,59 @@
+$ TraceQL: {resource.service.name="golden-dataset-studio-web" && resource.deployment.environment.name="otel-poc" && name="page_view" && span.ce.page="rules" && span.user.id="OTel Tester"} >> {resource.service.name="golden-dataset-studio" && kind=server}
+frame: Traces | ['traceID', 'startTime', 'traceService', 'traceName', 'traceDuration', 'nested']
+    ['4a410f3451e3018e15f5cff6b2326168', '1795251712553', 'golden-dataset-studio-web', 'page_view', '158', "[{'schema': {'name': 'Spans', 'meta': {'typeVersion': [0, 0]"]
+    ['a16674384418d27788ec186877fcf765', '1795251705648', 'golden-dataset-studio-web', 'page_view', '511', "[{'schema': {'name': 'Spans', 'meta': {'typeVersion': [0, 0]"]
+    ['91c9d01588c8331a4d4a45f4487a9fef', '1795251690586', 'golden-dataset-studio-web', 'page_view', '402', "[{'schema': {'name': 'Spans', 'meta': {'typeVersion': [0, 0]"]
+
+$ trace 91c9d01588c8331a4d4a45f4487a9fef (tree; server span attributes)
+[golden-dataset-studio-web] page_view  402 ms
+  [golden-dataset-studio-web] GET /api/catalogs/{catalog}/pages/{stem}/render  91 ms
+    [golden-dataset-studio] GET /api/catalogs/{catalog}/pages/{stem}/render  54 ms
+  [golden-dataset-studio-web] GET /api/catalogs/{catalog}/pages/{stem}/render  96 ms
+    [golden-dataset-studio] GET /api/catalogs/{catalog}/pages/{stem}/render  54 ms
+  [golden-dataset-studio-web] GET /api/catalogs/{catalog}/pages/{stem}/render  205 ms
+    [golden-dataset-studio] GET /api/catalogs/{catalog}/pages/{stem}/render  21 ms
+
+span GET /api/catalogs/{catalog}/pages/{stem}/render
+   ce.catalog = training-uark-edu-portal-training
+   ce.catalog.folder = training-uark-edu-portal-training
+   ce.catalog.platform = 
+   ce.page = rules
+   ce.page.stem = training-uark-edu-portal-training-cmd-catalog-course-achieving-quality-asphalt-e-0e9876ffd8
+   ce.page_view.id = 4982a7c90e3fdd28
+   ce.stats.storage.local.duration_ms = 1.1
+   ce.stats.storage.local.local_paths = 2
+   http.response.body.size = 14045
+   http.response.status_code = 200
+   http.route = /api/catalogs/{catalog}/pages/{stem}/render
+   session.id = 2546e1f5ef1674b6544adee38a74a178
+   user.id = OTel Tester
+   user.roles = ['engineer']
+resource:
+   ce.cicd.triggered_by = phitoduck
+   cicd.pipeline.name = build-otel.sh
+   cicd.pipeline.run.id = local-20261121T084950Z
+   cicd.worker.name = laptop
+   container.image.name = cr.priv.mlops-club.org/golden-rules-studio/app
+   deployment.environment.name = otel-poc
+   deployment.id = local-20261121T085831Z
+   deployment.name = 6308326-otel
+   k8s.cluster.name = homelab
+   k8s.container.name = golden-rules-studio
+   k8s.deployment.name = golden-rules-studio
+   k8s.namespace.name = golden-rules-studio-otel
+   k8s.node.name = cluster-node-1
+   k8s.pod.name = golden-rules-studio-fbb8d6448-vrdr6
+   k8s.pod.start_time = 2026-11-21T08:59:49Z
+   k8s.pod.uid = b34513cf-5dfd-4a8f-96e9-8075b99927dd
+   k8s.replicaset.name = golden-rules-studio-fbb8d6448
+   service.instance.id = d55e31dd-5645-4720-9157-0c0760deaaef
+   service.name = golden-dataset-studio
+   service.namespace = ctdl-xtra
+   service.version = 0.1.0
+   vcs.owner.name = CredentialEngine
+   vcs.provider.name = github
+   vcs.ref.head.name = feat/otel-instrumentation-poc
+   vcs.ref.head.revision = 63083266c7755639a6c1d5eed44d10279ab2c774
+   vcs.ref.head.type = branch
+   vcs.repository.name = ctdl-xtra
+   vcs.repository.url.full = https://github.com/CredentialEngine/ctdl-xtra

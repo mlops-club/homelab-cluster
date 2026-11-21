@@ -1,0 +1,10 @@
+grafana_folder.studio_otel: Creating...
+grafana_folder.studio_otel: Creation complete after 0s [id=0:studio-otel-poc]
+grafana_dashboard.studio_otel: Creating...
+grafana_dashboard.studio_otel: Creation complete after 1s [id=0:studio-otel-pages]
+
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+dashboard_url = "https://gallantfudge2729.grafana.net/d/studio-otel-pages/studio-otel-poc3a-pages"

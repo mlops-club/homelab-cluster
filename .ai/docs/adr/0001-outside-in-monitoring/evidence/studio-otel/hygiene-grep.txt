@@ -1,0 +1,7 @@
+# ctdl-xtra feat/otel-instrumentation-poc at 3b9e67b, diff against branch point a78be91
+$ git diff a78be91..HEAD -- . ":!**/package-lock.json" ":!**/uv.lock" | grep "^+" | grep -iE "mlops-club|grafana\.net|grafana|priv\.|tailnet|ts\.net|homelab|cr\.priv|gallantfudge|harbor|k8s\.|cluster"
++Everything that says where the Studio runs (`service.namespace`, `deployment.*`, `vcs.*`, `cicd.*`, `k8s.*`) comes
+$ lockfiles: ... | grep -ciE "mlops-club|grafana\.net|priv\."
+0
+$ hosts of URLs added:
+   1 http://collector:4318
