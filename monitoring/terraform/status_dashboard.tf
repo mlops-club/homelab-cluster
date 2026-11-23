@@ -12,16 +12,17 @@
 #   select a period. The bars zoom to the selection; the stats stay on the last 24 h (status_selection.tf)
 
 locals {
-  # report_h: height of the report text panel; slo: key in local.slo_services (slos.tf), or null
+  # locs: probe locations running the check; report_h: height of the report text panel;
+  # slo: key in local.slo_services (slos.tf), or null
   status_services = [
-    { name = "Jellyfin", job = "jellyfin-login", every = "15m", report_h = 21, slo = "jellyfin" },
-    { name = "Navidrome", job = "navidrome-login", every = "15m", report_h = 21, slo = "navidrome" },
-    { name = "Photos (Immich)", job = "immich-login", every = "15m", report_h = 21, slo = "immich" },
-    { name = "Audiobookshelf", job = "audiobookshelf-login", every = "15m", report_h = 21, slo = "audiobookshelf" },
-    { name = "Audiobookshelf page load (Oregon, Ohio)", job = "audiobookshelf-browser", every = "15m", report_h = 21, slo = null },
-    { name = "Golden Rules Studio", job = "golden-rules-studio-health", every = "15m", report_h = 9, slo = "golden-rules-studio" },
-    { name = "Harbor (container registry)", job = "harbor-health", every = "5m", report_h = 9, slo = "harbor" },
-    { name = "K2", job = "k2-health", every = "5m", report_h = 9, slo = "k2" },
+    { name = "Jellyfin", job = "jellyfin-login", every = "15m", locs = 1, report_h = 21, slo = "jellyfin" },
+    { name = "Navidrome", job = "navidrome-login", every = "15m", locs = 1, report_h = 21, slo = "navidrome" },
+    { name = "Photos (Immich)", job = "immich-login", every = "15m", locs = 1, report_h = 21, slo = "immich" },
+    { name = "Audiobookshelf", job = "audiobookshelf-login", every = "15m", locs = 2, report_h = 21, slo = "audiobookshelf" },
+    { name = "Audiobookshelf page load (Oregon, Ohio)", job = "audiobookshelf-browser", every = "15m", locs = 2, report_h = 21, slo = null },
+    { name = "Golden Rules Studio", job = "golden-rules-studio-health", every = "15m", locs = 2, report_h = 9, slo = "golden-rules-studio" },
+    { name = "Harbor (container registry)", job = "harbor-health", every = "5m", locs = 1, report_h = 9, slo = "harbor" },
+    { name = "K2", job = "k2-health", every = "5m", locs = 1, report_h = 9, slo = "k2" },
   ]
   status_dashboards = {
     status = { title = "Homelab status", uid = "homelab-status", jobs = [for s in local.status_services : s.job] }
@@ -48,13 +49,13 @@ locals {
   # ---- SLO math row (top of each dashboard) ----
   math_row_h = 1
   math_text = join("\n", [
-    "Each SLO asks: **of the check runs the schedule promised, what share passed?** A run that never arrived (probe, network or Grafana down) counts as failed, so silence can't look healthy. The cards walk through the symbols first, then the table below puts in each service's live numbers. Target T = ${local.slo_objective * 100} %, window W = ${local.slo_window} (or since the SLO was created, if newer).",
+    "Each SLO asks: **of the results the schedule promised, what share passed?** A result that never arrived (probe, network or Grafana down) counts as failed, so silence can't look healthy. The cards name every term first, then the table under them substitutes each service's live numbers. Target T = ${local.slo_objective * 100} %, window W = ${local.slo_window} (or since the SLO was created, if newer).",
     "",
-    "<img src=\"${local.math_url}/slo-legend.png\" width=\"49%\"> <img src=\"${local.math_url}/slo-step1-expected.png\" width=\"49%\">",
-    "<img src=\"${local.math_url}/slo-step2-sli.png\" width=\"49%\"> <img src=\"${local.math_url}/slo-step3-budget.png\" width=\"49%\">",
-    "<img src=\"${local.math_url}/slo-step4-spent.png\" width=\"49%\"> <img src=\"${local.math_url}/slo-step5-verdict.png\" width=\"49%\">",
-    "<img src=\"${local.math_url}/slo-example.png\" width=\"49%\"> <img src=\"${local.math_url}/slo-received-vs-expected.png\" width=\"49%\">",
-    "<img src=\"${local.math_url}/slo-burn-rate.png\" width=\"49%\">",
+    "**How Grafana counts it:** time is cut into 5-minute slots, one per probe location. A slot is good when the check's latest result in it passed, bad when it failed, and also bad when nothing arrived. So E = expected slots and G = passing slots; a failed 15-minute run counts for the ~15 minutes its result stands.",
+    "",
+    "<img src=\"${local.math_url}/slo-legend.png\" width=\"32%\"> <img src=\"${local.math_url}/slo-step1-expected.png\" width=\"32%\"> <img src=\"${local.math_url}/slo-step2-sli.png\" width=\"32%\">",
+    "<img src=\"${local.math_url}/slo-step3-budget.png\" width=\"32%\"> <img src=\"${local.math_url}/slo-step4-spent.png\" width=\"32%\"> <img src=\"${local.math_url}/slo-step5-verdict.png\" width=\"32%\">",
+    "<img src=\"${local.math_url}/slo-example.png\" width=\"32%\"> <img src=\"${local.math_url}/slo-received-vs-expected.png\" width=\"32%\"> <img src=\"${local.math_url}/slo-burn-rate.png\" width=\"32%\">",
   ])
   # One query per table column, one series per service (label `service`), from Grafana SLO's own 5-minute
   # recording rules: success = passed runs per bucket, total = expected runs per bucket (slos.tf)
@@ -83,13 +84,13 @@ locals {
       panels = [
         {
           id = 902, type = "text", title = "", transparent = true
-          gridPos = { x = 0, y = 1, w = 24, h = 40 }
+          gridPos = { x = 0, y = 1, w = 24, h = 34 }
           options = { mode = "markdown", content = local.math_text }
         },
         {
           id = 903, type = "table", datasource = local.prom
-          title   = "Live numbers: each service's terms substituted into the formulas (window ${local.slo_window})"
-          gridPos = { x = 0, y = 41, w = 24, h = 9 }
+          title   = "Live numbers: each service's terms substituted into the formulas. E and G count 5-minute slots per probe location; verdict = SLI ≥ ${local.slo_objective * 100} % (window ${local.slo_window})"
+          gridPos = { x = 0, y = 35, w = 24, h = 9 }
           targets = [for col in ["E", "G", "F", "SLI", "B", "SPENT", "OK"] :
           { refId = col, instant = true, format = "table", expr = local.slo_math_targets[d][col] }]
           transformations = [
@@ -98,9 +99,9 @@ locals {
               excludeByName = { Time = true }
               indexByName   = { service = 0, "Value #E" = 1, "Value #G" = 2, "Value #F" = 3, "Value #SLI" = 4, "Value #B" = 5, "Value #SPENT" = 6, "Value #OK" = 7 }
               renameByName = {
-                service = "Service", "Value #E" = "E: expected runs", "Value #G" = "G: passed runs",
-                "Value #F" = "F = E − G: failed or missing", "Value #SLI" = "SLI = G ÷ E", "Value #B" = "B = (1 − T) × E: budget (runs)",
-                "Value #SPENT" = "Budget spent = F ÷ B", "Value #OK" = "Verdict (SLI ≥ ${local.slo_objective * 100} %)"
+                service = "Service", "Value #E" = "E (expected slots)", "Value #G" = "G (passing slots)",
+                "Value #F" = "F = E − G", "Value #SLI" = "SLI = G ÷ E", "Value #B" = "B = (1 − T) × E",
+                "Value #SPENT" = "Spent = F ÷ B", "Value #OK" = "Verdict"
               }
             } },
           ]
@@ -112,13 +113,13 @@ locals {
                 { id = "custom.cellOptions", value = { type = "color-text" } },
                 { id = "thresholds", value = { mode = "absolute", steps = [{ color = "red", value = null }, { color = "green", value = local.slo_objective }] } },
               ] },
-              { matcher = { id = "byName", options = "B = (1 − T) × E: budget (runs)" }, properties = [{ id = "decimals", value = 2 }] },
-              { matcher = { id = "byName", options = "Budget spent = F ÷ B" }, properties = [
+              { matcher = { id = "byName", options = "B = (1 − T) × E" }, properties = [{ id = "decimals", value = 2 }] },
+              { matcher = { id = "byName", options = "Spent = F ÷ B" }, properties = [
                 { id = "unit", value = "percentunit" }, { id = "decimals", value = 0 },
                 { id = "custom.cellOptions", value = { type = "color-text" } },
                 { id = "thresholds", value = { mode = "absolute", steps = [{ color = "green", value = null }, { color = "orange", value = 0.5 }, { color = "red", value = 1 }] } },
               ] },
-              { matcher = { id = "byName", options = "Verdict (SLI ≥ ${local.slo_objective * 100} %)" }, properties = [
+              { matcher = { id = "byName", options = "Verdict" }, properties = [
                 { id = "custom.cellOptions", value = { type = "color-background" } },
                 { id = "mappings", value = [{ type = "value", options = {
                   "1" = { text = "SLO met", color = "green", index = 0 }
@@ -147,11 +148,13 @@ locals {
       fieldConfig = { defaults = { mappings = local.state_map } }
     },
     {
-      id       = i * 10 + 2, type = "stat", title = "${s.name}: uptime, 24 h", datasource = local.prom
+      id       = i * 10 + 2, type = "stat", title = "${s.name}: uptime, 24 h (no data = down)", datasource = local.prom
       gridPos  = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 4, w = 5, h = 3 }
       timeFrom = "24h", hideTimeOverride = true
       targets = [{ refId = "A", instant = true,
-      expr = "avg(avg_over_time(probe_success{job=\"${s.job}\"}[24h]))" }]
+        # same slot math as the SLOs (slos.tf): 5-minute slots with no result count as down; slots from before
+        # the check's first-ever result are left out, so a new check doesn't start near 0 %
+      expr = "${format(local.slot_good, s.job, "24h")} / sum_over_time((vector(${s.locs}) and on() (count(count_over_time(probe_success{job=\"${s.job}\"}[30d])) > 0))[24h:5m])" }]
       options = { colorMode = "value", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
       fieldConfig = { defaults = { unit = "percentunit", decimals = 2, noValue = "no data", thresholds = { mode = "absolute",
       steps = [{ color = "red", value = null }, { color = "orange", value = 0.99 }, { color = "green", value = 0.999 }] } } }

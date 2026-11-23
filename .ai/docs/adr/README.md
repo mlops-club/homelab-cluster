@@ -15,4 +15,4 @@
 
 | ADR | Topic | Research | POC | Decision |
 |---|---|---|---|---|
-| [0001](0001-outside-in-monitoring/) | Outside-in monitoring, SLOs and alerting | [research.md](0001-outside-in-monitoring/research.md) | [grafana-poc.md](0001-outside-in-monitoring/grafana-poc.md) | Pending POCs |
+| [0001](0001-outside-in-monitoring/) | Outside-in monitoring, SLOs and alerting | [research.md](0001-outside-in-monitoring/research.md) | [grafana-poc.md](0001-outside-in-monitoring/grafana-poc.md) | [decision.md](0001-outside-in-monitoring/decision.md) (Accepted); follow-up [telemetry-plan.md](0001-outside-in-monitoring/telemetry-plan.md) |
