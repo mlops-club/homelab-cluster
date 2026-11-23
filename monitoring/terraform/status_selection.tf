@@ -10,9 +10,9 @@ locals {
   logs = { type = "loki", uid = "grafanacloud-logs" }
 
   # One readable line per log entry; SM's agent logs in logfmt, k6 "check result" lines carry check, group, value.
-  # Public probes are named (Oregon, Ohio); the tailnet probe is the only private one, so it goes unnamed
+  # Public probes are named (Oregon, Ohio); the in-cluster probe (homelab-cluster) is the only private one, so it goes unnamed
   run_log_format = join("", [
-    "{{ if ne .probe \"homelab-tailnet-laptop\" }}[{{ .probe }}] {{ end }}",
+    "{{ if ne .probe \"homelab-cluster\" }}[{{ .probe }}] {{ end }}",
     "{{ if eq .msg \"check result\" }}{{ if eq .value \"1\" }}✓{{ else }}✗{{ end }} {{ with trimPrefix \"::\" .group }}{{ . }}: {{ end }}{{ .check }}",
     "{{ else if eq .msg \"Check succeeded\" }}PASSED in {{ .duration_seconds }} s",
     "{{ else if eq .msg \"Check failed\" }}FAILED after {{ .duration_seconds }} s",

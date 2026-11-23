@@ -7,6 +7,7 @@ locals {
     jellyfin = "https://jellyfin.priv.mlops-club.org/health"
     immich   = "https://photos.priv.mlops-club.org/api/server/ping"
     harbor   = "https://cr.priv.mlops-club.org/api/v2.0/health"
+    k2       = "https://k2.priv.mlops-club.org/health"
   }
 }
 
@@ -15,9 +16,9 @@ resource "grafana_synthetic_monitoring_check" "private_health" {
   job       = "${each.key}-health"
   target    = each.value
   enabled   = true
-  frequency = 300000 # 5 min: 8,928 runs/month per location (1 min = 44,640, over the free 100k for 3 checks)
+  frequency = 300000 # 5 min: 8,928 runs/month per check (1 min = 44,640, over the free 100k for 3 checks)
   timeout   = 5000
-  probes    = [grafana_synthetic_monitoring_probe.tailnet_laptop.id]
+  probes    = [grafana_synthetic_monitoring_probe.cluster.id]
   labels = {
     service = each.key
     kind    = "health"

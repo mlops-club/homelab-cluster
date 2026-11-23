@@ -19,7 +19,7 @@ resource "grafana_rule_group" "probe_heartbeat" {
     exec_err_state = "Alerting"
     labels         = { severity = "critical", service = "probe", team = "homelab" }
     annotations = {
-      summary = "No results from the tailnet probe: the probe host, the cluster network or the tailnet is down"
+      summary = "No results from the in-cluster probe (homelab-cluster): the probe pod, the cluster network or the tailnet is down"
     }
 
     data {
@@ -31,7 +31,7 @@ resource "grafana_rule_group" "probe_heartbeat" {
       }
       model = jsonencode({
         refId   = "A"
-        expr    = "count(probe_success{probe=\"homelab-tailnet-laptop\"})"
+        expr    = "count(probe_success{probe=\"homelab-cluster\"})"
         instant = true
       })
     }

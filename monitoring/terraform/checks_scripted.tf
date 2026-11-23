@@ -7,7 +7,7 @@ resource "grafana_synthetic_monitoring_check" "media_health" {
   enabled   = true
   frequency = 300000 # 5 min
   timeout   = 30000
-  probes    = [grafana_synthetic_monitoring_probe.tailnet_laptop.id]
+  probes    = [grafana_synthetic_monitoring_probe.cluster.id]
   labels = {
     service = "media"
     kind    = "scripted"

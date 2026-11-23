@@ -17,7 +17,7 @@ resource "grafana_synthetic_monitoring_check" "login_private" {
   enabled   = true
   frequency = 900000 # 15 min
   timeout   = 30000
-  probes    = [grafana_synthetic_monitoring_probe.tailnet_laptop.id]
+  probes    = [grafana_synthetic_monitoring_probe.cluster.id]
   labels = {
     service = each.key
     kind    = "login"
