@@ -24,7 +24,10 @@ documentation:
     - adr/README.md (index of architecture decision records)
     - adr/0001-outside-in-monitoring/research.md (outside-in monitoring, SLO and alerting tool research with annotated pricing evidence)
     - adr/0001-outside-in-monitoring/grafana-poc.md (Grafana Cloud POC: credential setup with annotated screenshots, POC test order)
-    - adr/0001-outside-in-monitoring/decision.md (decision: Grafana Cloud checks, in-cluster probe, no-data SLOs, Discord routing, billing, Terraform state in the cluster; key terms and annotated screenshots)
+    - adr/0001-outside-in-monitoring/decision.md (decision: Grafana Cloud checks from an in-cluster probe, readings-based uptime where no data = down, internal and external dashboards, billing; key terms with examples)
+    - adr/0003-terraform-state-in-cluster/decision.md (decision: Terraform state in a Kubernetes Secret with a Lease lock, one Secret per root module)
+    - adr/0004-alerts-and-routing/decision.md (decision: heartbeat and burn-rate alerts, team=homelab label, notification policy, Discord contact point)
+    - adr/0005-on-call-schedule/decision.md (proposed: paging hours for phone alerts via Grafana IRM)
     - adr/0001-outside-in-monitoring/telemetry-plan.md (plan: minimal cluster-wide traces, metrics and logs into Grafana Cloud via Traefik OTLP)
     - adr/0002-traefik-default-certificate/decision.md (default TLSStore per Traefik, label-scoped CRD provider, Reflector removed)
 

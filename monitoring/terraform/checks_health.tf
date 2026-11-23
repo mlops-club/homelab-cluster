@@ -16,7 +16,7 @@ resource "grafana_synthetic_monitoring_check" "private_health" {
   job       = "${each.key}-health"
   target    = each.value
   enabled   = true
-  frequency = 300000 # 5 min: 8,928 runs/month per check (1 min = 44,640, over the free 100k for 3 checks)
+  frequency = 1200000 # 20 min: 2,232 runs/month per check (1 min = 44,640)
   timeout   = 5000
   probes    = [grafana_synthetic_monitoring_probe.cluster.id]
   labels = {

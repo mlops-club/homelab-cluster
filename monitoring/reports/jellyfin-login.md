@@ -1,7 +1,7 @@
 <!-- Purpose: "What this check does" report for the jellyfin-login check, shown in a collapsed row on the public Homelab status dashboard
      Scope: Rendered by templatefile() in monitoring/terraform/status_dashboard.tf; ${img} and ${repo} are filled there -->
 
-**Synthetic login check, every 15 min from the tailnet probe.** It makes the same API calls the Jellyfin web and TV apps make, as the read-only `homelab-monitor` user. It does not click the UI; the screenshots show the equivalent screens.
+**Synthetic login check, every 20 min from the tailnet probe.** It makes the same API calls the Jellyfin web and TV apps make, as the read-only `homelab-monitor` user. It does not click the UI; the screenshots show the equivalent screens.
 
 | # | Step | API call | Passes when |
 |---|---|---|---|

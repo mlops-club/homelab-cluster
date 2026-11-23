@@ -1,7 +1,7 @@
 <!-- Purpose: "What this check does" report for the golden-rules-studio-health check, shown in a collapsed row on the status dashboards
      Scope: Rendered by templatefile() in monitoring/terraform/status_dashboard.tf; ${img} and ${repo} are filled there -->
 
-**Outside-in health check, every 15 min from Grafana's public probes in Oregon and Ohio.** It reaches Golden Rules Studio the way a reviewer on the internet does: Cloudflare DNS and TLS, the Cloudflare Tunnel, `traefik-public`, then the app.
+**Outside-in health check, every 20 min from Grafana's public probes in Oregon and Ohio.** It reaches Golden Rules Studio the way a reviewer on the internet does: Cloudflare DNS and TLS, the Cloudflare Tunnel, `traefik-public`, then the app.
 
 | # | Step | Request | Passes when |
 |---|---|---|---|

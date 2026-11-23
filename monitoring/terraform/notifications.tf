@@ -2,7 +2,7 @@
 # Scope: Grafana POC test 6. Only rules labelled team=homelab are routed, which keeps Grafana's built-in
 #   trial rules (e.g. asserts_up) out of the channel
 # Overview: The webhook URL comes from ~/credentials/homelab-alerting.env via ./tf. It is stored in
-#   Terraform state (gitignored), like the other tokens. grafana_notification_policy owns the whole tree
+#   Terraform state (a Secret in the cluster, ADR 0003), like the other tokens. Routing: ADR 0004. grafana_notification_policy owns the whole tree
 
 variable "discord_alerts_webhook_url" {
   type        = string

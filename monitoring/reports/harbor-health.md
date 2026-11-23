@@ -1,7 +1,7 @@
 <!-- Purpose: "What this check does" report for the harbor-health check, shown in a collapsed row on the status dashboards
      Scope: Rendered by templatefile() in monitoring/terraform/status_dashboard.tf; ${img} and ${repo} are filled there -->
 
-**Health check, every 5 min from the in-cluster probe (`homelab-cluster`, over the tailnet).** Harbor is the private container registry at `cr.priv.mlops-club.org`; every app image, including Golden Rules Studio's, is pulled from it.
+**Health check, every 20 min from the in-cluster probe (`homelab-cluster`, over the tailnet).** Harbor is the private container registry at `cr.priv.mlops-club.org`; every app image, including Golden Rules Studio's, is pulled from it.
 
 | # | Step | Request | Passes when |
 |---|---|---|---|

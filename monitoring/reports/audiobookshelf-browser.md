@@ -1,7 +1,7 @@
 <!-- Purpose: "What this check does" report for the audiobookshelf-browser check, shown in a collapsed row on the public Homelab status dashboard
      Scope: Rendered by templatefile() in monitoring/terraform/status_dashboard.tf; ${img} and ${repo} are filled there -->
 
-**Synthetic browser check, every 15 min from Grafana's Oregon and Ohio probes.** A real Chromium browser loads the public sign-in page, so this is the one check that renders the UI. It records page-load timing (first contentful paint, largest contentful paint, time to first byte) as a listener would see it.
+**Synthetic browser check, every 20 min from Grafana's Oregon and Ohio probes.** A real Chromium browser loads the public sign-in page, so this is the one check that renders the UI. It records page-load timing (first contentful paint, largest contentful paint, time to first byte) as a listener would see it.
 
 | # | Step | What the browser does | Passes when |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 <!-- Purpose: "What this check does" report for the navidrome-login check, shown in a collapsed row on the public Homelab status dashboard
      Scope: Rendered by templatefile() in monitoring/terraform/status_dashboard.tf; ${img} and ${repo} are filled there -->
 
-**Synthetic login check, every 15 min from the tailnet probe.** It uses the Subsonic API that music apps (Symfonium, play:Sub, the web player) use, as the read-only `homelab-monitor` user, with salted-token auth so the password never crosses the wire. The screenshots show the equivalent screens.
+**Synthetic login check, every 20 min from the tailnet probe.** It uses the Subsonic API that music apps (Symfonium, play:Sub, the web player) use, as the read-only `homelab-monitor` user, with salted-token auth so the password never crosses the wire. The screenshots show the equivalent screens.
 
 | # | Step | API call | Passes when |
 |---|---|---|---|

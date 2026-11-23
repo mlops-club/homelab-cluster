@@ -1,20 +1,19 @@
-# ADR 0001: Outside-In Monitoring, SLOs and Alerting on Grafana Cloud
+# ADR 0001: Outside-In Uptime Monitoring on Grafana Cloud
 
-**Purpose**: Record the decision to monitor the homelab from the outside in with Grafana Cloud: synthetic checks run from an in-cluster probe and Grafana's public probes, availability SLOs that count missing data as failure, alerts routed to Discord, and public status dashboards, all managed by Terraform with its state in the cluster
+**Purpose**: Record the decision to measure the homelab's uptime from the outside in with Grafana Cloud Synthetic Monitoring: what is checked, from where, how uptime is calculated (a missing result counts as down), the two status dashboards, and what Grafana bills for
 
-**Scope**: Every listener-facing service (Jellyfin, Navidrome, Immich, Audiobookshelf, Golden Rules Studio, Harbor, K2), the probe that checks the private ones, the SLO math, alert routing, billing, and where the Terraform code and state live. Cluster-wide traces, metrics and logs are a follow-up ([telemetry-plan.md](telemetry-plan.md))
+**Scope**: Every monitored service (Jellyfin, Navidrome, Immich, Audiobookshelf, Golden Rules Studio, Harbor, K2), the in-cluster probe, the uptime math, the internal and external dashboards, and billing. Where the Terraform state lives is [ADR 0003](../0003-terraform-state-in-cluster/decision.md); which alerts exist and how they reach Discord is [ADR 0004](../0004-alerts-and-routing/decision.md); when the phone may ring is [ADR 0005](../0005-on-call-schedule/decision.md). Cluster-wide traces, metrics and logs are a follow-up ([telemetry-plan.md](telemetry-plan.md))
 
-**Overview**: Visual first. The marked-up screenshots and formula cards below carry the explanation; the
-    text around them is short. Key terms come first, because Grafana's alerting vocabulary (alert rule,
-    notification policy, contact point) is not obvious. Then the architecture, the SLO math including how
-    "no data" is turned into a failure, what Grafana bills for, and how the probe and Terraform state were
-    moved into the cluster and verified
+**Overview**: Visual first. Key terms come first, each with an example from this setup. Then the two
+    dashboards (marked-up screenshots), the uptime formulas (the same cards the dashboards show), how
+    "no result" becomes "down" in PromQL, how a window that is not full yet is handled, and billing.
+    No uptime target is shown or judged anywhere: the dashboards report uptime and downtime only
 
-**Dependencies**: [research.md](research.md) (options and free-tier limits), [grafana-poc.md](grafana-poc.md) (POC tests), `monitoring/terraform/` (all Grafana resources), `apps/sm-probe/` (the probe pod)
+**Dependencies**: [ADR 0003](../0003-terraform-state-in-cluster/decision.md) (Terraform state), [research.md](research.md) (options and free-tier limits), [grafana-poc.md](grafana-poc.md) (POC tests), `monitoring/terraform/` (all Grafana resources), `apps/sm-probe/` (the probe pod)
 
-**Exports**: The decision, the definitions of the terms used across the monitoring docs, the slot-based SLI with its PromQL
+**Exports**: The decision, the monitoring terms used across these ADRs, the readings-based uptime formula and its PromQL
 
-**Related**: [telemetry-plan.md](telemetry-plan.md), `monitoring/checks/` (k6 scripts), `monitoring/reports/` (per-check reports shown on the dashboards)
+**Related**: [ADR 0004](../0004-alerts-and-routing/decision.md), [ADR 0005](../0005-on-call-schedule/decision.md), [telemetry-plan.md](telemetry-plan.md), `monitoring/checks/` (k6 scripts), `monitoring/reports/` (per-check reports on the internal dashboard), `monitoring/dashboard-images/` (formula cards and their renderer)
 
 ---
 
@@ -27,187 +26,152 @@ graph LR
     subgraph cluster["Homelab cluster"]
         AGENT["sm-probe pod<br/>(probe homelab-cluster)"]
         APPS["Jellyfin · Navidrome · Immich<br/>Harbor · K2 (*.priv, tailnet)"]
-        STATE[("Secret terraform-state/<br/>tfstate-default-grafana-monitoring")]
     end
     subgraph grafana["Grafana Cloud (free tier)"]
-        SM["Synthetic Monitoring<br/>checks + schedules"]
+        SM["Synthetic Monitoring<br/>checks, every 20 min"]
         PUB["Public probes<br/>Oregon · Ohio"]
-        PROM[("Metrics + logs")]
-        SLO["SLOs (7)"]
-        RULES["Alert rules<br/>(burn rate, probe silent)"]
-        POLICY["Notification policy<br/>team = homelab"]
-        CP["Contact point<br/>homelab-discord"]
-        DASH["Status dashboards<br/>(public links)"]
+        PROM[("Results:<br/>metrics + logs")]
+        INT["Homelab status<br/>(internal)"]
+        EXT["Golden Rules Studio status<br/>(external)"]
+        ALERTS["Alerts<br/>(ADR 0004)"]
     end
-    DISCORD["Discord #homelab-alerts"]
-    TF["Terraform<br/>monitoring/terraform"]
+    TF["Terraform<br/>state: ADR 0003"]
 
     SM -->|"checks (outbound gRPC)"| AGENT
     AGENT -->|HTTPS over tailnet| APPS
     AGENT -->|results| PROM
     SM --> PUB -->|"Audiobookshelf, Studio<br/>(public URLs)"| PROM
-    PROM --> SLO --> RULES
-    PROM --> RULES
-    RULES -->|labels| POLICY --> CP --> DISCORD
-    PROM --> DASH
-    TF -->|creates| SM & SLO & RULES & POLICY & CP & DASH
-    TF <-->|state + lock| STATE
+    PROM --> INT & EXT & ALERTS
+    TF -->|creates| SM & INT & EXT & ALERTS
 ```
 
 ## Key terms
 
-| Term | Plain meaning | In this setup |
+| Term | Plain meaning | Example in this setup |
 |---|---|---|
-| **Check** | *What* is tested: a script or URL, how often, from which probes | `monitoring/terraform/checks_*.tf`; scripts in `monitoring/checks/` |
-| **Probe** | *Where* a check runs from: an agent that receives checks from Grafana and sends results back | `homelab-cluster` (pod in the cluster) for private services; Grafana's Oregon and Ohio for public URLs |
-| **Alert rule** | A question Grafana asks every minute ("is the probe silent?", "is the error budget burning fast?"). When the answer is yes, the alert fires and carries **labels** such as `team = homelab` | `alerts_heartbeat.tf`; burn-rate rules generated by each SLO |
-| **Notification policy** | A routing rule: reads the labels an alert rule put on the alert and picks contact points | `team = homelab` → `homelab-discord`; everything else → `empty` |
-| **Contact point** | A connector: one place a message can be delivered, with its settings. It has no rules of its own | `homelab-discord` (webhook of `#homelab-alerts`); `empty` (no integrations, delivers nowhere) |
-| **Mute timing** | A schedule during which a policy holds messages back | Not used yet; planned for phone paging (see Follow-ups) |
-| **SLI** | Service level *indicator*: the measured share of good results | passing 5-minute slots ÷ expected slots |
-| **SLO** | Service level *objective*: the target for the SLI over a window | 99.9 % over 14 days, one per service |
-| **Error budget** | The failure the target allows: (1 − target) × expected | 0.1 % of the window ≈ 20 minutes per 14 days |
-| **Burn rate** | How fast the budget is being spent, relative to spending it exactly over the window | Fast and slow burn alerts, generated by Grafana SLO |
+| **Check** | *What* is tested: a URL or a k6 script, how often, from which probes | `jellyfin-login`: signs in as the read-only `homelab-monitor` user, lists a library and reads 64 KB of a real file, every 20 minutes |
+| **Probe** | *Where* a check runs from: an agent that receives checks from Grafana and sends results back | `homelab-cluster`, the `sm-probe` pod in the cluster, which reaches `jellyfin.priv.mlops-club.org` over the tailnet |
+| **Location** | One probe running one check. A check on two probes has two locations, and each is billed | `golden-rules-studio-health` runs from Oregon and Ohio: 2 locations |
+| **Run** | One execution of a check at one location; it passes or fails and takes some time | A `harbor-health` run at 09:40 that got `200` in 0.21 s |
+| **Reading** | Every 5 minutes, each location's latest result: up if it passed, down if it failed **or if no result arrived**. A 20-minute run is read 4 times | K2 for one day: 1 location × 288 readings |
+| **Uptime** | Readings up ÷ readings expected, over the window | K2: 102 up of 102 expected = 100.00 % |
+| **Downtime** | Readings down turned back into time: × 5 minutes ÷ locations | 6 readings down at 1 location = 30 minutes |
+| **Window** | The period uptime is reported over | The last 14 days (Grafana's trial keeps 14 days of metrics) |
+| **Days measured** | How much of the window has readings so far; less than 14 until monitoring has run that long | 0.4 of 14 on the day the readings started |
+| **Execution** | Grafana's billing unit: one run at one location | `audiobookshelf-browser` at 2 locations every 20 minutes = 4,464 browser executions a month |
 
-### How an alert reaches Discord
+## The two dashboards
 
-An alert rule fires with labels; the notification policy matches the labels; the contact point delivers.
+Both come from one Terraform recipe (`monitoring/terraform/status_dashboard.tf`) and are shared by public
+link. At first glance each is an uptime page; everything deeper sits in collapsed rows.
 
-![Contact points: a connector per destination](images/decision/contact-points.png)
+| | Homelab status (internal) | Golden Rules Studio status (external) |
+|---|---|---|
+| Audience | Everyone who runs the cluster | People who use Golden Rules Studio |
+| Services | All seven | Golden Rules Studio, Harbor, K2 (Studio depends on the other two) |
+| Check toggle | Step-by-step report naming hosts, routes (Cloudflare, Traefik) and the code that defines the check | A plain-language description: what is checked, how often, what a red bar means |
+| Run log | Yes (its error lines can name hosts and IP addresses) | No |
+| Links to the repo | Yes | None. The formula cards are embedded in the dashboard, so nothing loads from GitHub |
+| Uptime math row | Table + cards + links to the code | Table + cards |
 
-![Notification policies: the routing rules](images/decision/notification-policies.png)
+![Internal dashboard: every service, stats on the left, one bar per run, toggles underneath](images/decision/internal-dashboard.jpg)
 
-### Probes and checks
+![External dashboard with the uptime row expanded: table on top, formula cards stacked under it, no internals](images/decision/external-dashboard.jpg)
 
-![Probes: where checks run from](images/decision/probes.png)
+## How uptime is calculated
 
-## What the dashboards look like
+The dashboards show these three cards, stacked under the live table. Each states the formula in words,
+then puts an example's numbers in.
 
-Two public dashboards are built from one Terraform recipe (`status_dashboard.tf`): **Homelab status** (every
-service) and **Studio stack status** (Golden Rules Studio plus Harbor and K2, the services it depends on). At
-first glance they are uptime pages; everything deeper sits in collapsed rows.
+![Uptime: readings up divided by readings expected](images/uptime-math/uptime-1-formula.png)
 
-![Homelab status dashboard](images/decision/status-dashboard.png)
+![Downtime: readings down times 5 minutes divided by locations](images/uptime-math/uptime-2-downtime.png)
 
-![Studio stack status dashboard](images/decision/studio-stack-dashboard.png)
+![Missing results count as down, and days measured](images/uptime-math/uptime-3-missing.png)
 
-The collapsed **How the SLOs are calculated** row walks through the math the way the FIRE calculator does
-(each term named, the formula in words, then symbols, then the numbers), followed by a table that
-substitutes every service's live values:
+### How "no result" becomes "down" in PromQL
 
-![SLO math row with live numbers](images/decision/slo-math-dashboard.jpg)
-
-![Grafana SLO list](images/decision/slo-list.png)
-
-## SLO math
-
-The same cards render on the dashboard. Symbols first:
-
-![Legend](images/slo-math/slo-legend.png)
-
-| | |
-|---|---|
-| ![Step 1](images/slo-math/slo-step1-expected.png) | ![Step 2](images/slo-math/slo-step2-sli.png) |
-| ![Step 3](images/slo-math/slo-step3-budget.png) | ![Step 4](images/slo-math/slo-step4-spent.png) |
-| ![Step 5](images/slo-math/slo-step5-verdict.png) | ![Worked example](images/slo-math/slo-example.png) |
-
-### No data counts as a violation
-
-![Received vs expected](images/slo-math/slo-received-vs-expected.png)
-
-A ratio of `passed ÷ received` reads 100 % while the probe is down, because nothing failed: results just
-stopped. The fix is a denominator that comes from the schedule, not from what arrived.
-
-**How it is done in PromQL** (`monitoring/terraform/slos.tf`). The SM agent re-publishes each check's latest
-result about once a minute, so `probe_success` is a state that holds between runs and disappears while the
-probe or network is down. Grafana SLO evaluates a freeform query in 5-minute buckets
-(`$__rate_interval` = 5m) and adds the buckets up over each window:
+Dividing by the results that *arrived* reads 100 % while the probe is down, because nothing failed:
+results just stopped. The fix is a denominator that comes from the schedule. The SM agent re-publishes
+each check's latest result about once a minute, so `probe_success` holds its value between runs and
+disappears while the probe or its network is down. Grafana SLO evaluates a query in 5-minute buckets and
+adds the buckets up over the window (`monitoring/terraform/slos.tf`):
 
 ```promql
-# numerator: per 5-minute bucket, the share of the bucket each location reported "passing";
-# "or vector(0)" turns an empty bucket into 0 passes instead of dropping it
-sum_over_time((sum(avg_over_time(probe_success{job="jellyfin-login"}[5m])) or vector(0))[$__rate_interval:5m])
+# readings up, per 5-minute bucket: each location's share of the bucket that reported "passing".
+#   max by (probe): one series per location (editing a check briefly overlaps old and new series)
+#   or vector(0):   an empty bucket counts 0 readings up instead of disappearing
+sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job="k2-health"}[5m]))) or vector(0))[$__rate_interval:5m])
 /
-# denominator: L slots per bucket (L = probe locations), whether or not anything arrived
+# readings expected, per 5-minute bucket: one per location, whether or not anything arrived
 sum_over_time(vector(1)[$__rate_interval:5m])
 ```
 
-So **E = expected slots** and **G = passing slots**: a failed 15-minute run counts for the ~15 minutes its
-result stands, and a silent hour counts as 12 failed slots per location. Two simpler forms were tried and
-rejected while building this: counting samples overcounts (one run is published many times), and
-`increase()` of the run counter loses runs that straddle a bucket edge.
+Two simpler forms were tried and rejected: counting samples overcounts (one run is published many times),
+and `increase()` of the run counter loses runs that straddle a bucket edge.
 
-The same slot math drives each dashboard's **uptime, 24 h (no data = down)** stat, starting from the check's
-first-ever result so a new check doesn't start near 0 %.
+Grafana SLO is used only as the engine that turns this query into 5-minute recording rules
+(`grafana_slo_success_rate_5m`, `grafana_slo_total_rate_5m`); the dashboard table adds those up over 14
+days. Grafana SLO requires an objective, so each one is set to 95 %. The objective drives only the
+burn-rate alerts ([ADR 0004](../0004-alerts-and-routing/decision.md)); no dashboard shows it.
 
-### Burn-rate alerts
+### A window that isn't full yet
 
-![Burn rate](images/slo-math/slo-burn-rate.png)
-
-Grafana SLO generates two alert rules per SLO, labelled `team = homelab`, so they route to Discord. With
-15-minute checks an hour holds only 4 results, so one missed run is a large share of a short window: expect
-a page from a single bad run on those services (the 5-minute checks for Harbor and K2 are less jumpy).
+The recording rules exist only from the moment each service's SLO was created, so "readings expected"
+counts the measured days only, never the empty days before monitoring began. The **Days measured**
+column says how much of the 14 days that is. The 24 h uptime stat on each row uses the same readings and
+starts at the check's first-ever result, so a new check doesn't start near 0 %.
 
 ## What Grafana bills for
 
 | Item | Free tier | Above it | This setup |
 |---|---|---|---|
-| API test executions (HTTP, scripted k6) | 100k / month | $5 per 10k | ≈ 65.5k / month |
-| Browser test executions | 10k / month | $50 per 10k | ≈ 6.0k / month |
-| Metrics, logs from checks | Free-tier series/GB limits | Standard Cloud rates | Small; shared with everything else |
+| API executions (HTTP, scripted k6) | 100k / month | $5 per 10k | 26,784 / month |
+| Browser executions | 10k / month | $50 per 10k | 4,464 / month |
+| Metrics and logs from checks | Free-tier series and GB limits | Standard Cloud rates | Small; shared with everything else |
 
-One **execution** is one check run in one probe location. **Runs on our own probe are billed exactly like
-runs on Grafana's public probes**: the cost is in scheduling, storing and querying results, not in where the
-request is made. The estimate (31-day month):
+**Runs on our own probe are billed exactly like runs on Grafana's public probes**: the cost is in
+scheduling, storing and querying results, not in where the request is made. Every check runs every 20
+minutes (3 runs an hour, 2,232 a month per location in a 31-day month):
 
-| Checks | Interval | Locations | Runs / month |
-|---|---|---|---|
-| Health: Jellyfin, Immich, Harbor, K2 | 5 min | 1 | 4 × 8,928 = 35,712 |
-| Media health (scripted) | 5 min | 1 | 8,928 |
-| Logins: Jellyfin, Navidrome, Immich | 15 min | 1 | 3 × 2,976 = 8,928 |
-| Login: Audiobookshelf | 15 min | 2 | 5,952 |
-| Health: Golden Rules Studio | 15 min | 2 | 5,952 |
-| **API total** | | | **65,472** |
-| Browser: Audiobookshelf page load | 15 min | 2 | 5,952 |
+| Checks | Locations | Executions / month |
+|---|---|---|
+| Health: Jellyfin, Immich, Harbor, K2 | 1 each | 4 × 2,232 = 8,928 |
+| Media health (scripted, from the POC) | 1 | 2,232 |
+| Logins: Jellyfin, Navidrome, Immich | 1 each | 3 × 2,232 = 6,696 |
+| Login: Audiobookshelf | 2 | 4,464 |
+| Health: Golden Rules Studio | 2 | 4,464 |
+| **API total** | | **26,784** (was 65,472 with 5- and 15-minute checks) |
+| Browser: Audiobookshelf page load | 2 | 4,464 (was 5,952) |
 
 Alert rules are not billed per evaluation; the free tier allows 500 alert rules (about 15 are in use).
 Sources: [Synthetic Monitoring pricing](https://grafana.com/docs/grafana-cloud/platform/pricing-and-usage/synthetic-monitoring/),
 [Grafana pricing](https://grafana.com/pricing/).
 
-## Moving the probe and the Terraform state into the cluster
+## The probe runs in the cluster
 
 | What | Before | After | Verified by |
 |---|---|---|---|
-| Private probe | `homelab-tailnet-laptop`, Podman on a laptop; checks went silent whenever the laptop slept | `homelab-cluster`, Deployment `sm-probe/sm-probe` (1 replica, `Recreate`, not on cluster-node-4) | Probe API reports `homelab-cluster online v0.71.0`; all private jobs report `probe="homelab-cluster"`; laptop probe destroyed and its container removed |
-| Network path | Laptop on the tailnet | Pod traffic leaves through the node, which is on the tailnet, so `*.priv.mlops-club.org` resolves to Traefik's tailnet IP and works without a sidecar | `curl https://jellyfin.priv.mlops-club.org/health` from a pod: 200 via 100.95.181.95 |
-| Probe token | `tf output` pasted into Podman | `apps/sm-probe/deploy.sh` pipes `tf output -raw cluster_probe_token` straight into Secret `sm-probe-token`; never written to disk | Pod starts and connects |
-| Terraform state | `monitoring/terraform/terraform.tfstate` inside one git worktree | `backend "kubernetes"`: Secret `terraform-state/tfstate-default-grafana-monitoring` (gzip, ≈ 14 KB of a 1 MB limit), Lease `lock-tfstate-default-grafana-monitoring` | `terraform init -migrate-state`; `plan` with the local file moved away reports no changes; a second `plan` during a running one fails with "Error acquiring the state lock" |
+| Private probe | `homelab-tailnet-laptop`, Podman on a laptop; checks went silent whenever the laptop slept | `homelab-cluster`, Deployment `sm-probe/sm-probe` (1 replica, `Recreate`, not on cluster-node-4) | Probe API reports `homelab-cluster online v0.71.0`; all private jobs report `probe="homelab-cluster"`; laptop probe destroyed |
+| Network path | Laptop on the tailnet | Pod traffic leaves through the node, which is on the tailnet, so `*.priv.mlops-club.org` resolves to Traefik's tailnet IP without a sidecar | `curl https://jellyfin.priv.mlops-club.org/health` from a pod: 200 via 100.95.181.95 |
+| Probe token | `tf output` pasted into Podman | `apps/sm-probe/deploy.sh` pipes `tf output -raw cluster_probe_token` into Secret `sm-probe-token`; never written to disk | Pod starts and connects |
 
-State is organised as **one Terraform folder (root module) = one state = one Secret** in the
-`terraform-state` namespace, named after the folder. Split folders by system and credentials (Grafana
-monitoring, Studio telemetry, a future Cloudflare setup), not by size. GitHub Actions can run Terraform
-later by joining the tailnet the way `helmfile-deploy.yml` does and using a kubeconfig with access to that
-namespace only.
-
-**Trade-off accepted:** a probe inside the cluster can't run when the whole cluster is down. The
-"Tailnet probe is silent" alert (`no_data_state = Alerting`) fires in that case, the public probes keep
-checking the public URLs, and the SLOs count the silence as downtime.
+**Trade-off accepted:** a probe inside the cluster can't run when the whole cluster is down. Its readings
+go missing, which counts as down; the public probes keep checking the public URLs; and the "probe is
+silent" alert fires ([ADR 0004](../0004-alerts-and-routing/decision.md)).
 
 ## Consequences
 
-- Missing data is never healthy: grey "no result" bars, uptime and SLOs all treat silence as down.
-- Each SLO's budget is small (≈ 1.3 failed 15-minute runs per 14 days); one bad night shows up clearly.
-- The probe shares the cluster's fate (see trade-off above).
-- Terraform needs a working kubeconfig for the homelab cluster to plan or apply.
+- Missing data is never healthy: grey "no result" bars, 24 h uptime and 14-day uptime all count silence as down.
+- With 20-minute checks, an outage shorter than 20 minutes can fall between runs and go unseen; a failed run counts as about 20 minutes down.
+- The external dashboard is safe to share with Studio users; the internal one names hosts and links to code.
+- The formula cards are embedded in the dashboard JSON (about 120 KB per dashboard), which also lands in the Terraform state ([ADR 0003](../0003-terraform-state-in-cluster/decision.md)).
 - Observed: from the in-cluster probe, Navidrome and Jellyfin login runs take longer than they did from the laptop (Navidrome ≈ 0.6 s → 2–2.5 s). Worth a look with the traces from [telemetry-plan.md](telemetry-plan.md).
 
 ## Follow-ups
 
-1. **Phone paging with quiet hours:** add a Grafana IRM contact point next to Discord, with a mute timing
-   (America/Denver) so the phone only buzzes 08:45–18:00 weekdays, 09:45–18:00 Saturday and 11:00–18:00
-   Sunday; alerts still firing when quiet hours end page then. Needs the owner to install Grafana IRM and
-   pair it.
-2. **Cluster telemetry:** Traefik OTLP traces, request metrics and error logs into Grafana Cloud, shown only
+1. **Cluster telemetry:** Traefik OTLP traces, request metrics and error logs into Grafana Cloud, shown only
    inside the dashboard toggles ([telemetry-plan.md](telemetry-plan.md)).
-3. Switch `docs_ref` in `status_dashboard.tf` to `main` after the PR merges (dashboard images load from it).
-4. Run Terraform from GitHub Actions against the in-cluster state.
+2. Switch `docs_ref` in `status_dashboard.tf` to `main` after the PR merges (internal report links and
+   screenshots load from it).
+3. Decide whether the POC's `media-health` check is still worth 2,232 executions a month.

@@ -1,7 +1,7 @@
 <!-- Purpose: "What this check does" report for the audiobookshelf-login check, shown in a collapsed row on the public Homelab status dashboard
      Scope: Rendered by templatefile() in monitoring/terraform/status_dashboard.tf; ${img} and ${repo} are filled there -->
 
-**Synthetic login check, every 15 min from Grafana's Oregon and Ohio probes.** It goes through the public internet path listeners use (Cloudflare, the tunnel, Traefik) to `books.mlops-club.org`. It makes the same API calls the web player and AudioBooth make, as the `homelab-monitor` guest user, which can stream but not download, upload or edit. The screenshots show the equivalent screens.
+**Synthetic login check, every 20 min from Grafana's Oregon and Ohio probes.** It goes through the public internet path listeners use (Cloudflare, the tunnel, Traefik) to `books.mlops-club.org`. It makes the same API calls the web player and AudioBooth make, as the `homelab-monitor` guest user, which can stream but not download, upload or edit. The screenshots show the equivalent screens.
 
 | # | Step | API call | Passes when |
 |---|---|---|---|

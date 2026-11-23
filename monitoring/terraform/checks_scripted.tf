@@ -5,7 +5,7 @@ resource "grafana_synthetic_monitoring_check" "media_health" {
   job       = "media-health"
   target    = "https://jellyfin.priv.mlops-club.org" # label only; the script defines the requests
   enabled   = true
-  frequency = 300000 # 5 min
+  frequency = 1200000 # 20 min
   timeout   = 30000
   probes    = [grafana_synthetic_monitoring_probe.cluster.id]
   labels = {
