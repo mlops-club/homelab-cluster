@@ -1,0 +1,11 @@
+$ monitoring/scripts/promql 'probe_check_success_rate{job="media-health"}'
+__name__                  job                       probe                     service                   check                     group                     instance                value
+probe_check_success_rate  media-health              homelab-tailnet-laptop    media                     immich pong               ::immich                  https://jellyfin.priv.mlops-club.org1
+probe_check_success_rate  media-health              homelab-tailnet-laptop    media                     immich reports a version  ::immich                  https://jellyfin.priv.mlops-club.org1
+probe_check_success_rate  media-health              homelab-tailnet-laptop    media                     jellyfin healthy          ::jellyfin                https://jellyfin.priv.mlops-club.org1
+probe_check_success_rate  media-health              homelab-tailnet-laptop    media                     jellyfin reports a version  ::jellyfin                https://jellyfin.priv.mlops-club.org1
+probe_check_success_rate  media-health              homelab-tailnet-laptop    media                     navidrome answers subsonic  ::navidrome               https://jellyfin.priv.mlops-club.org1
+
+$ monitoring/scripts/promql 'sum(count_over_time(probe_success{job="media-health"}[1h]))'
+value
+1

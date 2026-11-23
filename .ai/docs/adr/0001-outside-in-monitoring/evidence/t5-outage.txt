@@ -1,0 +1,17 @@
+19:13:34 podman stop homelab-sm-agent
+19:13:34 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:14:05 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:14:35 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:15:06 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:15:36 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:16:07 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:16:37 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:17:08 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:17:39 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:18:09 inactive  Tailnet probe is silent  [('Normal', '2026-11-21T02:10:30')]
+19:18:40 pending   Tailnet probe is silent  [('Pending (NoData)', '2026-11-21T02:18:30')]
+19:19:11 pending   Tailnet probe is silent  [('Pending (NoData)', '2026-11-21T02:18:30')]
+19:19:41 pending   Tailnet probe is silent  [('Pending (NoData)', '2026-11-21T02:18:30')]
+19:20:12 pending   Tailnet probe is silent  [('Pending (NoData)', '2026-11-21T02:18:30')]
+19:20:42 firing    Tailnet probe is silent  [('Alerting (NoData)', '2026-11-21T02:20:30')]
+19:20:56 podman start homelab-sm-agent

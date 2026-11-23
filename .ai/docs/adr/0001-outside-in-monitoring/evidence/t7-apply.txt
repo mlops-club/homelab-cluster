@@ -1,0 +1,205 @@
+data.grafana_synthetic_monitoring_probes.public: Reading...
+grafana_synthetic_monitoring_probe.tailnet_laptop: Refreshing state... [id=547]
+grafana_slo.poc_canary: Refreshing state... [id=0v3autwrhlgaxj09g6x9h]
+grafana_slo.jellyfin_availability: Refreshing state... [id=luu9i5cuue5gbhg50vfra]
+grafana_synthetic_monitoring_check.media_health: Refreshing state... [id=69018]
+grafana_synthetic_monitoring_check.poc_canary: Refreshing state... [id=69020]
+grafana_synthetic_monitoring_check.private_health["harbor"]: Refreshing state... [id=69016]
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Refreshing state... [id=69015]
+grafana_synthetic_monitoring_check.private_health["immich"]: Refreshing state... [id=69017]
+data.grafana_synthetic_monitoring_probes.public: Read complete after 0s [id=probes]
+grafana_synthetic_monitoring_check.audiobookshelf_browser: Refreshing state... [id=69019]
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # grafana_dashboard.status will be created
+  + resource "grafana_dashboard" "status" {
+      + config_json  = jsonencode(
+            {
+              + panels   = [
+                  + {
+                      + datasource  = {
+                          + type = "prometheus"
+                          + uid  = "grafanacloud-prom"
+                        }
+                      + fieldConfig = {
+                          + defaults = {
+                              + mappings = [
+                                  + {
+                                      + options = {
+                                          + "0" = {
+                                              + color = "red"
+                                              + text  = "DOWN"
+                                            }
+                                          + "1" = {
+                                              + color = "green"
+                                              + text  = "UP"
+                                            }
+                                        }
+                                      + type    = "value"
+                                    },
+                                ]
+                            }
+                        }
+                      + gridPos     = {
+                          + h = 5
+                          + w = 24
+                          + x = 0
+                          + y = 0
+                        }
+                      + options     = {
+                          + colorMode = "background"
+                          + graphMode = "none"
+                          + textMode  = "value_and_name"
+                        }
+                      + targets     = [
+                          + {
+                              + expr         = "max by (job) (probe_success{job=~\"jellyfin-health|immich-health|harbor-health|media-health|audiobookshelf-browser\"})"
+                              + instant      = true
+                              + legendFormat = "{{job}}"
+                              + refId        = "A"
+                            },
+                        ]
+                      + title       = "Up now"
+                      + type        = "stat"
+                    },
+                  + {
+                      + datasource  = {
+                          + type = "prometheus"
+                          + uid  = "grafanacloud-prom"
+                        }
+                      + fieldConfig = {
+                          + defaults = {
+                              + decimals   = 2
+                              + thresholds = {
+                                  + mode  = "absolute"
+                                  + steps = [
+                                      + {
+                                          + color = "red"
+                                          + value = null
+                                        },
+                                      + {
+                                          + color = "orange"
+                                          + value = 0.99
+                                        },
+                                      + {
+                                          + color = "green"
+                                          + value = 0.999
+                                        },
+                                    ]
+                                }
+                              + unit       = "percentunit"
+                            }
+                        }
+                      + gridPos     = {
+                          + h = 5
+                          + w = 24
+                          + x = 0
+                          + y = 5
+                        }
+                      + options     = {
+                          + colorMode = "value"
+                          + graphMode = "none"
+                          + textMode  = "value_and_name"
+                        }
+                      + targets     = [
+                          + {
+                              + expr         = "avg by (job) (avg_over_time(probe_success{job=~\"jellyfin-health|immich-health|harbor-health|media-health|audiobookshelf-browser\"}[24h]))"
+                              + instant      = true
+                              + legendFormat = "{{job}}"
+                              + refId        = "A"
+                            },
+                        ]
+                      + title       = "Uptime, last 24 h"
+                      + type        = "stat"
+                    },
+                  + {
+                      + datasource  = {
+                          + type = "prometheus"
+                          + uid  = "grafanacloud-prom"
+                        }
+                      + fieldConfig = {
+                          + defaults = {
+                              + mappings = [
+                                  + {
+                                      + options = {
+                                          + "0" = {
+                                              + color = "red"
+                                              + text  = "DOWN"
+                                            }
+                                          + "1" = {
+                                              + color = "green"
+                                              + text  = "UP"
+                                            }
+                                        }
+                                      + type    = "value"
+                                    },
+                                ]
+                            }
+                        }
+                      + gridPos     = {
+                          + h = 8
+                          + w = 24
+                          + x = 0
+                          + y = 10
+                        }
+                      + targets     = [
+                          + {
+                              + expr         = "max by (job) (probe_success{job=~\"jellyfin-health|immich-health|harbor-health|media-health|audiobookshelf-browser\"})"
+                              + legendFormat = "{{job}}"
+                              + refId        = "A"
+                            },
+                        ]
+                      + title       = "History"
+                      + type        = "state-timeline"
+                    },
+                ]
+              + refresh  = "1m"
+              + time     = {
+                  + from = "now-24h"
+                  + to   = "now"
+                }
+              + timezone = "browser"
+              + title    = "Homelab status"
+              + uid      = "homelab-status"
+            }
+        )
+      + dashboard_id = (known after apply)
+      + id           = (known after apply)
+      + uid          = (known after apply)
+      + url          = (known after apply)
+      + version      = (known after apply)
+    }
+
+  # grafana_dashboard_public.status will be created
+  + resource "grafana_dashboard_public" "status" {
+      + access_token           = (known after apply)
+      + annotations_enabled    = false
+      + dashboard_uid          = (known after apply)
+      + id                     = (known after apply)
+      + is_enabled             = true
+      + org_id                 = (known after apply)
+      + share                  = "public"
+      + time_selection_enabled = false
+      + uid                    = (known after apply)
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + status_page_url            = (known after apply)
+grafana_dashboard.status: Creating...
+grafana_dashboard.status: Creation complete after 0s [id=0:homelab-status]
+grafana_dashboard_public.status: Creating...
+grafana_dashboard_public.status: Creation complete after 0s [id=0:homelab-status:dg4xdg5emhtz4b]
+
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+status_page_url = "/public-dashboards/<redacted>"
+tailnet_laptop_probe_token = <sensitive>

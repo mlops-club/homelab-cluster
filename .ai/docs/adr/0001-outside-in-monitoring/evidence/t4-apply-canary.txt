@@ -1,0 +1,97 @@
+data.grafana_synthetic_monitoring_probes.public: Reading...
+grafana_synthetic_monitoring_probe.tailnet_laptop: Refreshing state... [id=547]
+grafana_slo.jellyfin_availability: Refreshing state... [id=luu9i5cuue5gbhg50vfra]
+data.grafana_synthetic_monitoring_probes.public: Read complete after 0s [id=probes]
+grafana_synthetic_monitoring_check.audiobookshelf_browser: Refreshing state... [id=69019]
+grafana_synthetic_monitoring_check.media_health: Refreshing state... [id=69018]
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Refreshing state... [id=69015]
+grafana_synthetic_monitoring_check.private_health["immich"]: Refreshing state... [id=69017]
+grafana_synthetic_monitoring_check.private_health["harbor"]: Refreshing state... [id=69016]
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # grafana_slo.poc_canary will be created
+  + resource "grafana_slo" "poc_canary" {
+      + description = "Always-failing check used to prove burn-rate alerts fire"
+      + id          = (known after apply)
+      + name        = "POC canary (expected to fail)"
+      + uuid        = (known after apply)
+
+      + alerting {
+          + fastburn {
+              + annotation {
+                  + key   = "summary"
+                  + value = "POC canary burning budget fast (expected)"
+                }
+            }
+          + slowburn {
+            }
+        }
+
+      + destination_datasource {
+          + uid = "grafanacloud-prom"
+        }
+
+      + label {
+          + key   = "service"
+          + value = "poc-canary"
+        }
+
+      + objectives {
+          + value  = 0.999
+          + window = "14d"
+        }
+
+      + query {
+          + type = "ratio"
+
+          + ratio {
+              + group_by_labels = []
+              + success_metric  = "probe_all_success_sum{job=\"poc-canary-fail\"}"
+              + total_metric    = "probe_all_success_count{job=\"poc-canary-fail\"}"
+            }
+        }
+    }
+
+  # grafana_synthetic_monitoring_check.poc_canary will be created
+  + resource "grafana_synthetic_monitoring_check" "poc_canary" {
+      + alert_sensitivity  = "none"
+      + basic_metrics_only = true
+      + enabled            = true
+      + frequency          = 60000
+      + id                 = (known after apply)
+      + job                = "poc-canary-fail"
+      + labels             = {
+          + "kind"    = "health"
+          + "service" = "poc-canary"
+        }
+      + probes             = [
+          + 547,
+        ]
+      + target             = "https://jellyfin.priv.mlops-club.org/poc-canary-does-not-exist"
+      + tenant_id          = (known after apply)
+      + timeout            = 5000
+
+      + channels (known after apply)
+
+      + settings {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+grafana_synthetic_monitoring_check.poc_canary: Creating...
+grafana_slo.poc_canary: Creating...
+grafana_synthetic_monitoring_check.poc_canary: Creation complete after 1s [id=69020]
+grafana_slo.poc_canary: Creation complete after 1s [id=0v3autwrhlgaxj09g6x9h]
+
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+tailnet_laptop_probe_token = <sensitive>

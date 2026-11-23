@@ -1,0 +1,103 @@
+grafana_service_account.mcp: Refreshing state... [id=0:21]
+data.grafana_synthetic_monitoring_probes.public: Reading...
+grafana_dashboard.status: Refreshing state... [id=0:homelab-status]
+grafana_synthetic_monitoring_probe.tailnet_laptop: Refreshing state... [id=547]
+grafana_slo.jellyfin_availability: Refreshing state... [id=luu9i5cuue5gbhg50vfra]
+grafana_slo.poc_canary: Refreshing state... [id=0v3autwrhlgaxj09g6x9h]
+grafana_service_account_token.mcp: Refreshing state... [id=20]
+grafana_dashboard_public.status: Refreshing state... [id=0:homelab-status:dg4xdi4hehddsf]
+grafana_synthetic_monitoring_check.media_health: Refreshing state... [id=69018]
+grafana_synthetic_monitoring_check.poc_canary: Refreshing state... [id=69020]
+grafana_synthetic_monitoring_check.private_health["immich"]: Refreshing state... [id=69017]
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Refreshing state... [id=69015]
+grafana_synthetic_monitoring_check.private_health["harbor"]: Refreshing state... [id=69016]
+data.grafana_synthetic_monitoring_probes.public: Read complete after 0s [id=probes]
+grafana_synthetic_monitoring_check.audiobookshelf_browser: Refreshing state... [id=69019]
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # grafana_folder.homelab_alerts will be created
+  + resource "grafana_folder" "homelab_alerts" {
+      + id                           = (known after apply)
+      + prevent_destroy_if_not_empty = false
+      + title                        = "Homelab alerts"
+      + uid                          = (known after apply)
+      + url                          = (known after apply)
+    }
+
+  # grafana_rule_group.probe_heartbeat will be created
+  + resource "grafana_rule_group" "probe_heartbeat" {
+      + disable_provenance = false
+      + folder_uid         = (known after apply)
+      + id                 = (known after apply)
+      + interval_seconds   = 60
+      + name               = "probe-heartbeat"
+
+      + rule {
+          + annotations    = {
+              + "summary" = "No results from the tailnet probe: the probe host, the cluster network or the tailnet is down"
+            }
+          + condition      = "B"
+          + exec_err_state = "Alerting"
+          + for            = "2m"
+          + is_paused      = false
+          + labels         = {
+              + "service"  = "probe"
+              + "severity" = "critical"
+            }
+          + name           = "Tailnet probe is silent"
+          + no_data_state  = "Alerting"
+          + uid            = (known after apply)
+
+          + data {
+              + datasource_uid = "grafanacloud-prom"
+              + model          = jsonencode(
+                    {
+                      + expr    = "count(probe_success{probe=\"homelab-tailnet-laptop\"})"
+                      + instant = true
+                      + refId   = "A"
+                    }
+                )
+              + ref_id         = "A"
+
+              + relative_time_range {
+                  + from = 600
+                  + to   = 0
+                }
+            }
+          + data {
+              + datasource_uid = "__expr__"
+              + model          = jsonencode(
+                    {
+                      + expression = "$A < 1"
+                      + refId      = "B"
+                      + type       = "math"
+                    }
+                )
+              + ref_id         = "B"
+
+              + relative_time_range {
+                  + from = 0
+                  + to   = 0
+                }
+            }
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+grafana_folder.homelab_alerts: Creating...
+grafana_folder.homelab_alerts: Creation complete after 0s [id=0:cg4xdnp0h14w0f]
+grafana_rule_group.probe_heartbeat: Creating...
+grafana_rule_group.probe_heartbeat: Creation complete after 1s [id=0:cg4xdnp0h14w0f:probe-heartbeat]
+
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+mcp_token = <sensitive>
+status_page_path = "/public-dashboards/<redacted>"
+tailnet_laptop_probe_token = <sensitive>

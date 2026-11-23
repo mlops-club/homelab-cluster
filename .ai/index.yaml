@@ -20,7 +20,15 @@ documentation:
     - FILE_HEADER_STANDARDS.md (file documentation requirements)
     - ROADMAP_WORKFLOW.md (roadmap-driven development workflow)
     - CLUSTER_HA_AUDIT.md (per-service single-point-of-failure inventory, uptime measurement plan, HA recommendations)
+    - MONITORING_ACCOUNTS.md (every monitoring login, token and webhook: permissions, where the secret lives, rotation; no secret values)
     - adr/README.md (index of architecture decision records)
+    - adr/0001-outside-in-monitoring/research.md (outside-in monitoring, SLO and alerting tool research with annotated pricing evidence)
+    - adr/0001-outside-in-monitoring/grafana-poc.md (Grafana Cloud POC: credential setup with annotated screenshots, POC test order)
+    - adr/0001-outside-in-monitoring/decision.md (decision: Grafana Cloud checks from an in-cluster probe, readings-based uptime where no data = down, internal and external dashboards, billing; key terms with examples)
+    - adr/0003-terraform-state-in-cluster/decision.md (decision: Terraform state in a Kubernetes Secret with a Lease lock, one Secret per root module)
+    - adr/0004-alerts-and-routing/decision.md (decision: heartbeat and burn-rate alerts, team=homelab label, notification policy, Discord contact point)
+    - adr/0005-on-call-schedule/decision.md (proposed: paging hours for phone alerts via Grafana IRM)
+    - adr/0001-outside-in-monitoring/telemetry-plan.md (plan: minimal cluster-wide traces, metrics and logs into Grafana Cloud via Traefik OTLP)
     - adr/0002-traefik-default-certificate/decision.md (default TLSStore per Traefik, label-scoped CRD provider, Reflector removed)
 
 howto:
@@ -74,6 +82,13 @@ scripts:
     come_follow_me: apps/come-follow-me-app/deploy.sh (deploy CFM app)
     seminary_feedback: apps/seminary-feedback/deploy.sh (deploy Seminary app)
     personal_finance: apps/personal-finance/deploy.sh (deploy personal-finance FIRE planner)
+  monitoring:
+    terraform: monitoring/terraform/tf plan|apply (Grafana Cloud probes, checks, SLOs, alerts, status dashboard; credentials from .env)
+    checks: k6 run monitoring/checks/<name>.js (same scripts Grafana runs)
+    reports: monitoring/reports/<check>.md (step-by-step check reports shown in collapsed rows on the status dashboard)
+    promql: monitoring/scripts/promql '<query>' (instant query against the Grafana Cloud stack)
+    alert_states: monitoring/scripts/alert-states '<regex>' (state of Grafana-managed alert rules)
+    mcp_smoke: monitoring/scripts/mcp-smoke.py (drive mcp-grafana over stdio with the Viewer token)
   quality:
     prek_pr: prek pr (run all quality checks before PR)
     prek_run: prek run (run pre-commit hooks on staged files)

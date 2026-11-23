@@ -1,0 +1,33 @@
+
+
+  █ THRESHOLDS
+
+    checks
+    ✓ 'rate==1' rate=100.00%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 5       10.353768/s
+    checks_succeeded...: 100.00% 5 out of 5
+    checks_failed......: 0.00%   0 out of 5
+
+    ✓ jellyfin healthy
+    ✓ jellyfin reports a version
+    ✓ immich pong
+    ✓ immich reports a version
+    ✓ navidrome answers subsonic
+
+    HTTP
+    http_req_duration..............: avg=36.93ms  min=32.79ms  med=35.41ms  max=43.59ms  p(90)=41.81ms  p(95)=42.7ms
+      { expected_response:true }...: avg=36.93ms  min=32.79ms  med=35.41ms  max=43.59ms  p(90)=41.81ms  p(95)=42.7ms
+    http_req_failed................: 0.00%  0 out of 5
+    http_reqs......................: 5      10.353768/s
+
+    EXECUTION
+    iteration_duration.............: avg=481.63ms min=481.63ms med=481.63ms max=481.63ms p(90)=481.63ms p(95)=481.63ms
+    iterations.....................: 1      2.070754/s
+
+    NETWORK
+    data_received..................: 19 kB  39 kB/s
+    data_sent......................: 5.5 kB 12 kB/s

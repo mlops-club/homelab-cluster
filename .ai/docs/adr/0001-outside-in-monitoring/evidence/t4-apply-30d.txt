@@ -1,0 +1,71 @@
+data.grafana_synthetic_monitoring_probes.public: Reading...
+grafana_synthetic_monitoring_probe.tailnet_laptop: Refreshing state... [id=547]
+data.grafana_synthetic_monitoring_probes.public: Read complete after 0s [id=probes]
+grafana_synthetic_monitoring_check.audiobookshelf_browser: Refreshing state... [id=69019]
+grafana_synthetic_monitoring_check.media_health: Refreshing state... [id=69018]
+grafana_synthetic_monitoring_check.private_health["jellyfin"]: Refreshing state... [id=69015]
+grafana_synthetic_monitoring_check.private_health["immich"]: Refreshing state... [id=69017]
+grafana_synthetic_monitoring_check.private_health["harbor"]: Refreshing state... [id=69016]
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # grafana_slo.jellyfin_availability will be created
+  + resource "grafana_slo" "jellyfin_availability" {
+      + description = "Share of synthetic health checks from the tailnet probe that succeed"
+      + id          = (known after apply)
+      + name        = "Jellyfin availability"
+      + uuid        = (known after apply)
+
+      + alerting {
+          + fastburn {
+              + annotation {
+                  + key   = "summary"
+                  + value = "Jellyfin is burning its error budget fast"
+                }
+            }
+          + slowburn {
+              + annotation {
+                  + key   = "summary"
+                  + value = "Jellyfin is burning its error budget slowly"
+                }
+            }
+        }
+
+      + destination_datasource {
+          + uid = "grafanacloud-prom"
+        }
+
+      + label {
+          + key   = "service"
+          + value = "jellyfin"
+        }
+
+      + objectives {
+          + value  = 0.999
+          + window = "30d"
+        }
+
+      + query {
+          + type = "ratio"
+
+          + ratio {
+              + group_by_labels = []
+              + success_metric  = "probe_all_success_sum{job=\"jellyfin-health\"}"
+              + total_metric    = "probe_all_success_count{job=\"jellyfin-health\"}"
+            }
+        }
+    }
+
+Plan: 1 to add, 0 to change, 0 to destroy.
+grafana_slo.jellyfin_availability: Creating...
+grafana_slo.jellyfin_availability: Creation complete after 1s [id=luu9i5cuue5gbhg50vfra]
+
+Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+tailnet_laptop_probe_token = <sensitive>
