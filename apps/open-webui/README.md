@@ -54,6 +54,6 @@ To back up: `kubectl -n open-webui exec deploy/open-webui -- tar c -C /app/backe
 | Symptom | Likely cause |
 |---|---|
 | `chat.priv.mlops-club.org` doesn't resolve | Not on the tailnet, OR external-dns hasn't created the record yet (check `kubectl -n traefik-private logs deploy/external-dns`) |
-| TLS error in browser | `priv-wildcard-tls` not replicated to `open-webui` namespace — check reflector logs |
+| TLS error in browser | traefik-private's default certificate is not served — `kubectl get tlsstore -A` must show one `default` in `traefik-private`; see `network/private/README.md` → Certificate Issues |
 | Model picker shows no models | Ollama still pulling on first start. `kubectl -n ollama logs deploy/ollama` to confirm. |
 | "Failed to connect to Ollama" | Service DNS resolution issue. From inside the open-webui pod: `wget -qO- ollama.ollama.svc.cluster.local:11434` should return "Ollama is running". |

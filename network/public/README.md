@@ -19,23 +19,23 @@ graph TB
         CTIC[Cloudflare Tunnel<br/>Ingress Controller]
         TP[Traefik Public<br/>Service]
     end
-    
+
     subgraph "whoami-external namespace"
         APP1[whoami Service]
         ING1[Ingress<br/>whoami.mlops-club.org]
     end
-    
+
     subgraph "Other namespaces"
         APP2[App Service 1]
         APP3[App Service 2]
     end
-    
+
     CTIC -->|Creates Tunnel Routes| TP
     TP -->|Routes to| ING1
     TP -->|Routes to| APP2
     TP -->|Routes to| APP3
     ING1 -->|Routes to| APP1
-    
+
     style CTIC fill:#e1f5ff
     style TP fill:#e1f5ff
     style APP1 fill:#fff4e1
@@ -51,29 +51,29 @@ graph LR
     subgraph "Internet"
         Client[Client Browser]
     end
-    
+
     subgraph "Cloudflare Edge"
         CFEdge[Cloudflare Edge<br/>TLS Termination<br/>WAF, DDoS Protection]
     end
-    
+
     subgraph "Kubernetes Cluster"
         subgraph "traefik-public namespace"
             Tunnel[Cloudflare Tunnel<br/>cloudflared]
             Traefik[Traefik Public<br/>Port 80<br/>HTTP Routing]
         end
-        
+
         subgraph "whoami-external namespace"
             Ingress[Ingress<br/>whoami.mlops-club.org]
             Service[whoami Service]
         end
     end
-    
+
     Client -->|HTTPS<br/>whoami.mlops-club.org| CFEdge
     CFEdge -->|HTTP<br/>Port 80| Tunnel
     Tunnel -->|HTTP<br/>Port 80| Traefik
     Traefik -->|HTTP| Ingress
     Ingress -->|HTTP| Service
-    
+
     style Client fill:#e3f2fd
     style CFEdge fill:#fff3e0
     style Tunnel fill:#e1f5ff
@@ -106,12 +106,12 @@ sequenceDiagram
     participant Tunnel as Cloudflare Tunnel<br/>(cloudflared)
     participant Traefik as Traefik Public
     participant Service as Application Service
-    
+
     Note over Client,CFEdge: Connection 1: Client → Cloudflare
     Client->>CFEdge: HTTPS Request<br/>(whoami.mlops-club.org)
     Note over CFEdge: Edge Certificate<br/>(Auto-provisioned by Cloudflare)
     CFEdge->>CFEdge: Terminates TLS<br/>(WAF, DDoS protection)
-    
+
     Note over CFEdge,Tunnel: Connection 2: Cloudflare → Traefik
     CFEdge->>Tunnel: Forward via encrypted tunnel
     Tunnel->>Traefik: HTTP Request<br/>(Port 80)
@@ -134,22 +134,23 @@ sequenceDiagram
     participant CF as Cloudflare API
     participant K8s as Kubernetes<br/>(Secret)
     participant Traefik as Traefik Public<br/>(Not Currently Used)
-    
+
     Note over CM,LE: Certificate Request
     CM->>LE: Request Certificate<br/>(*.mlops-club.org)
     LE->>CM: DNS-01 Challenge
-    
+
     Note over CM,CF: DNS Challenge
     CM->>CF: Create TXT Record<br/>(_acme-challenge.mlops-club.org)
     CF-->>CM: TXT Record Created
     CM->>LE: Verify Challenge
     LE->>CF: Verify TXT Record
     CF-->>LE: Challenge Valid
-    
+
     Note over LE,K8s: Certificate Issuance
     LE-->>CM: Certificate Issued
-    CM->>K8s: Create Secret<br/>(mlops-wildcard-tls)
-    Note over K8s: Secret available but<br/>not used in current setup
+    CM->>K8s: Create Secret<br/>(mlops-wildcard-tls, ns traefik-public)
+    K8s-->>Traefik: Read via TLSStore default<br/>(default certificate)
+    Note over Traefik: Tunnel traffic arrives over HTTP,<br/>so public clients see the Cloudflare edge cert
 ```
 
 ## Components
@@ -212,7 +213,7 @@ spec:
   tls:
   - hosts:
     - my-app.mlops-club.org
-    secretName: mlops-wildcard-tls
+    # No secretName: traefik-public serves mlops-wildcard-tls as its default certificate
   rules:
   - host: my-app.mlops-club.org
     http:
@@ -270,7 +271,8 @@ See `traefik/TLS_ARCHITECTURE.md` for detailed explanation (note: that document 
 ### TLS Certificate Issues
 
 - **Edge certificate not ready**: Wait 5-15 minutes after adding domain to Cloudflare
-- **Origin certificate missing**: Ensure cert-manager is installed and `mlops-wildcard-tls` secret exists
+- **Origin certificate missing**: Ensure cert-manager is installed and `mlops-wildcard-tls` secret exists in `traefik-public`
+- **Traefik serves `TRAEFIK DEFAULT CERT`**: `kubectl get tlsstore -A` must list exactly one `default` per Traefik namespace, labeled `traefik.mlops-club.org/instance: public` here (`tlsStore` and `commonLabels` in [`traefik/values.yaml`](traefik/values.yaml)). Traefik objects such as `Middleware` or `IngressRoute` meant for traefik-public need the same label. Design record: [ADR 0002](../../.ai/docs/adr/0002-traefik-default-certificate/decision.md)
 
 ## Related Documentation
 
@@ -299,4 +301,3 @@ public/
 ├── helm-uninstall.sh
 └── README.md (this file)
 ```
-

@@ -37,7 +37,7 @@ Determine how the app should be accessible:
 | Path | Domain Pattern | Ingress Class | TLS | Access |
 |------|---------------|---------------|-----|--------|
 | **Public** | `<app>.mlops-club.org` | `traefik-public` | Cloudflare handles edge TLS | Internet |
-| **Private** | `<app>.priv.mlops-club.org` | `traefik-private` | `priv-wildcard-tls` cert | Tailscale only |
+| **Private** | `<app>.priv.mlops-club.org` | `traefik-private` | `priv-wildcard-tls` cert, served by default (no `secretName`) | Tailscale only |
 
 ### Step 2: Create App Directory
 
@@ -120,7 +120,15 @@ spec:
               number: <port>
 ```
 
-**For Private Apps** (via Tailscale): Use `ingressClassName: traefik-private` and host `<app-name>.priv.mlops-club.org`. Add TLS configuration referencing `priv-wildcard-tls` secret.
+**For Private Apps** (via Tailscale): Use `ingressClassName: traefik-private` and host `<app-name>.priv.mlops-club.org`. Add a `tls` block that lists the host and names no secret; traefik-private serves the wildcard `priv-wildcard-tls` as its default certificate, so nothing is copied into the app namespace:
+
+```yaml
+  tls:
+  - hosts:
+    - <app-name>.priv.mlops-club.org
+```
+
+Traefik objects such as `Middleware` or `IngressRoute` can live in the app namespace but must carry the label `traefik.mlops-club.org/instance: private` (or `public`), or that Traefik ignores them.
 
 ### Step 4: Create Deploy Script
 

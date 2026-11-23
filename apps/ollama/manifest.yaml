@@ -80,7 +80,7 @@ spec:
 ---
 # Private Tailscale-only Ingress in front of the chart's ClusterIP Service.
 # Mirrors the open-webui Ingress pattern: traefik-private class, websecure entrypoint,
-# wildcard TLS from the cluster-wide reflector-replicated priv-wildcard-tls secret.
+# wildcard TLS from traefik-private's default certificate (priv-wildcard-tls).
 # Hostname is registered automatically by external-dns watching this ingress class.
 # Reachable only from devices on the Tailnet — no public exposure.
 apiVersion: networking.k8s.io/v1
@@ -93,10 +93,10 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik-private
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
     - hosts:
         - ollama.priv.mlops-club.org
-      secretName: priv-wildcard-tls
   rules:
     - host: ollama.priv.mlops-club.org
       http:

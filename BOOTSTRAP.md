@@ -59,7 +59,7 @@ The bootstrap script is idempotent and can be run multiple times safely. It will
 2. Bootstrap the k3s cluster using Ansible
 3. Configure kubeconfig for local kubectl access
 4. Seed required Kubernetes secrets
-5. Install private network components (cert-manager, reflector, tailscale, external-dns, certificate, traefik-private)
+5. Install private network components (cert-manager, tailscale, external-dns, certificate, traefik-private)
 6. Install public network components (Cloudflare Tunnel, traefik-public)
 7. Optionally deploy example applications
 8. Verify deployment status

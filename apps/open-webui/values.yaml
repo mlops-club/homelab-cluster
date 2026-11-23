@@ -5,8 +5,9 @@
 #   - It talks to Ollama at http://ollama.ollama.svc.cluster.local:11434
 #     (Ollama is in the ollama namespace, owns the GPU).
 #   - Ingress is created manually in manifest.yaml so we can use the
-#     priv-wildcard-tls cert + traefik-private ingress class consistently
-#     with other private apps in this repo (jellyfin, etc).
+#     traefik-private ingress class (TLS from its default certificate,
+#     priv-wildcard-tls) consistently with other private apps in this repo
+#     (jellyfin, etc).
 
 # Don't run the Helm chart's bundled Ollama subchart — we deploy Ollama
 # separately to keep the GPU service reusable by other workloads.

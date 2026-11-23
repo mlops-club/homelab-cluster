@@ -92,9 +92,21 @@ kubectl logs -l app=cert-manager -n cert-manager --tail=50
 ```
 
 **Step 3: Common fixes**
-- Wildcard cert not propagating: Check that `reflector` is running and annotations are correct
 - ACME challenges failing: Verify `CLOUDFLARE_API_TOKEN` has correct permissions
-- Private cert (`priv-wildcard-tls`): Verify it exists in the app's namespace
+- Wildcard certs (`priv-wildcard-tls`, `mlops-wildcard-tls`) exist only in `traefik-private` / `traefik-public`; app namespaces hold no copy and Ingresses name no `secretName`
+- Browser shows `TRAEFIK DEFAULT CERT`: the default TLSStore is missing or ignored
+
+**Step 4: Check the default TLSStore**
+```bash
+# Exactly one `default` per Traefik namespace (traefik-private, traefik-public)
+kubectl get tlsstore -A
+# An unknown SNI must still return the wildcard, not TRAEFIK DEFAULT CERT
+openssl s_client -connect <host>:443 -servername foo.example.com </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -issuer
+# "Default TLS Store defined in multiple namespaces" means one Traefik sees both stores
+kubectl logs -n traefik-private deploy/traefik-private | grep -i tls
+```
+Traefik CRD objects (TLSStore, Middleware, IngressRoute) are read only when labeled `traefik.mlops-club.org/instance: private` or `public`. `Error configuring TLS: secret ... does not exist` means an Ingress names a `secretName`; the host still gets the default cert, and dropping `secretName` clears the error.
 
 ### NFS Storage Issues
 

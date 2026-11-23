@@ -21,41 +21,48 @@ graph TB
         TS[Tailscale Operator]
         EDNS[External-DNS]
         TP[Traefik Private<br/>Service]
-        CERT[Certificate<br/>priv-wildcard-tls]
+        CERT[Certificate<br/>priv-wildcard]
+        SEC[Secret<br/>priv-wildcard-tls]
+        STORE[TLSStore<br/>default]
     end
-    
+
     subgraph "whoami-internal namespace"
         APP1[whoami Service]
-        ING1[Ingress<br/>whoami.priv.mlops-club.org]
-        SEC1[Secret<br/>priv-wildcard-tls]
+        ING1[Ingress<br/>whoami.priv.mlops-club.org<br/>tls.hosts, no secretName]
     end
-    
+
     subgraph "Other namespaces"
         APP2[App Service 1]
         APP3[App Service 2]
     end
-    
-    CM -->|Creates| CERT
-    CERT -->|Generates| SEC1
+
+    CM -->|Issues| CERT
+    CERT -->|Writes| SEC
+    STORE -->|defaultCertificate| SEC
+    TP -->|Serves default cert from| STORE
     TS -->|Assigns Tailscale IP| TP
     EDNS -->|Creates DNS Records| TP
     TP -->|Routes to| ING1
     TP -->|Routes to| APP2
     TP -->|Routes to| APP3
-    ING1 -->|Uses TLS from| SEC1
     ING1 -->|Routes to| APP1
-    
+
     style CM fill:#e1f5ff
     style TS fill:#e1f5ff
     style EDNS fill:#e1f5ff
     style TP fill:#e1f5ff
     style CERT fill:#fff4e1
-    style SEC1 fill:#fff4e1
+    style SEC fill:#fff4e1
+    style STORE fill:#fff4e1
     style APP1 fill:#e8f5e9
     style APP2 fill:#e8f5e9
     style APP3 fill:#e8f5e9
     style ING1 fill:#e8f5e9
 ```
+
+The wildcard secret exists only in `traefik-private`. Traefik serves it as the default certificate
+through the `default` TLSStore (rendered from `tlsStore.default` in
+[`traefik/values.yaml`](traefik/values.yaml)), so Ingresses in any namespace get it without a copy.
 
 ### Network Diagram
 
@@ -64,26 +71,26 @@ graph LR
     subgraph "Internet"
         Client[Client Browser]
     end
-    
+
     subgraph "Cloudflare DNS"
         DNS[Cloudflare DNS<br/>CNAME + A Records]
     end
-    
+
     subgraph "Tailscale Network"
         TS[Tailscale Network<br/>100.x.x.x]
     end
-    
+
     subgraph "Kubernetes Cluster"
         subgraph "traefik-private namespace"
             Traefik[Traefik Private<br/>Port 443<br/>TLS Termination]
         end
-        
+
         subgraph "whoami-internal namespace"
             Ingress[Ingress<br/>whoami.priv.mlops-club.org]
             Service[whoami Service]
         end
     end
-    
+
     Client -->|DNS Query<br/>whoami.priv.mlops-club.org| DNS
     DNS -->|CNAME<br/>traefik.priv.mlops-club.org| DNS
     DNS -->|A Record<br/>100.x.x.x| Client
@@ -91,7 +98,7 @@ graph LR
     TS -->|HTTPS| Traefik
     Traefik -->|HTTP| Ingress
     Ingress -->|HTTP| Service
-    
+
     style Client fill:#e3f2fd
     style DNS fill:#fff3e0
     style TS fill:#f3e5f5
@@ -134,19 +141,19 @@ sequenceDiagram
     participant TS as Tailscale Network<br/>(100.x.x.x)
     participant Traefik as Traefik Private<br/>(TLS Termination)
     participant Service as Application Service
-    
+
     Note over Client,DNS: DNS Resolution (CNAME → A)
     Client->>DNS: DNS Query<br/>(whoami.priv.mlops-club.org)
     DNS-->>Client: CNAME Record<br/>(traefik.priv.mlops-club.org)
     Client->>DNS: DNS Query<br/>(traefik.priv.mlops-club.org)
     DNS-->>Client: A Record<br/>(Tailscale IP: 100.x.x.x)
-    
+
     Note over Client,TS: TLS Connection
     Client->>TS: HTTPS Request<br/>(100.x.x.x:443)
     TS->>Traefik: Forward via Tailscale network
-    
+
     Note over Traefik,Service: Request Routing
-    Traefik->>Traefik: Terminates TLS<br/>(Uses priv-wildcard-tls)
+    Traefik->>Traefik: Terminates TLS<br/>(default TLSStore: priv-wildcard-tls)
     Traefik->>Traefik: Routes by Host header<br/>(whoami.priv.mlops-club.org)
     Traefik->>Service: HTTP Request<br/>(Internal routing)
     Service-->>Traefik: HTTP Response
@@ -167,23 +174,23 @@ sequenceDiagram
     participant CF as Cloudflare API
     participant K8s as Kubernetes<br/>(Secret)
     participant Traefik as Traefik Private
-    
+
     Note over CM,LE: Certificate Request
     CM->>LE: Request Certificate<br/>(*.priv.mlops-club.org)
     LE->>CM: DNS-01 Challenge
-    
+
     Note over CM,CF: DNS Challenge
     CM->>CF: Create TXT Record<br/>(_acme-challenge.priv.mlops-club.org)
     CF-->>CM: TXT Record Created
     CM->>LE: Verify Challenge
     LE->>CF: Verify TXT Record
     CF-->>LE: Challenge Valid
-    
+
     Note over LE,K8s: Certificate Issuance
     LE-->>CM: Certificate Issued
     CM->>K8s: Create Secret<br/>(priv-wildcard-tls)
-    K8s-->>Traefik: Secret Available
-    Traefik->>Traefik: Load Certificate<br/>(TLS Termination)
+    K8s-->>Traefik: Secret read via TLSStore default<br/>(same namespace; renewals picked up directly)
+    Traefik->>Traefik: Serve as default certificate<br/>(TLS Termination)
 ```
 
 ## Components
@@ -289,7 +296,7 @@ spec:
   tls:
   - hosts:
     - my-app.priv.mlops-club.org
-    secretName: priv-wildcard-tls
+    # No secretName: traefik-private serves priv-wildcard-tls as its default certificate
   rules:
   - host: my-app.priv.mlops-club.org
     http:
@@ -303,13 +310,9 @@ spec:
               number: 80
 ```
 
-**Important**: Copy the `priv-wildcard-tls` secret to your namespace:
-
-```bash
-kubectl get secret priv-wildcard-tls -n traefik-private -o yaml \
-  | sed 's/namespace: traefik-private/namespace: my-namespace/' \
-  | kubectl apply -n my-namespace -f -
-```
+No secret is copied into `my-namespace`. Leave `secretName` out: an Ingress that names a secret
+missing from its namespace still gets the default certificate, but Traefik logs
+`Error configuring TLS: secret ... does not exist` for it.
 
 ## TLS Certificates
 
@@ -321,12 +324,18 @@ kubectl get secret priv-wildcard-tls -n traefik-private -o yaml \
 - **Secret**: `priv-wildcard-tls` in `traefik-private` namespace
 - **Auto-renewal**: Managed by cert-manager
 
-### Certificate Sharing
+### Default Certificate (TLSStore)
 
-To use the wildcard certificate in other namespaces:
-
-1. Copy the secret to your namespace (see example above)
-2. Reference it in your Ingress TLS configuration
+- `tlsStore.default.defaultCertificate.secretName: priv-wildcard-tls` in
+  [`traefik/values.yaml`](traefik/values.yaml) renders a `TLSStore` named `default` in `traefik-private`
+- Every router without its own certificate (every Ingress here) gets the wildcard; renewals by
+  cert-manager reach Traefik directly
+- The kubernetesCRD provider only reads objects labeled `traefik.mlops-club.org/instance: private`.
+  Traefik objects such as `Middleware`, `IngressRoute` or `TLSOption` need that label (in any namespace)
+  to be picked up by traefik-private. The label keeps traefik-public's `default` TLSStore out of view:
+  two `default` stores make Traefik log `Default TLS Store defined in multiple namespaces` and drop the
+  default certificate. Plain Ingress objects are selected by `ingressClassName`, not by the label
+- Design record: [ADR 0002](../../.ai/docs/adr/0002-traefik-default-certificate/decision.md)
 
 ## Troubleshooting
 
@@ -357,34 +366,45 @@ To use the wildcard certificate in other namespaces:
 
 ### Certificate Issues
 
-1. **Certificate not ready**:
+1. **Browser shows `TRAEFIK DEFAULT CERT`**: the default TLSStore is missing or ignored.
+   ```bash
+   # Exactly one `default` per Traefik namespace (traefik-private, traefik-public)
+   kubectl get tlsstore -A
+   # SNI for an unknown host must still return the wildcard, not TRAEFIK DEFAULT CERT
+   openssl s_client -connect whoami.priv.mlops-club.org:443 -servername foo.example.com </dev/null 2>/dev/null \
+     | openssl x509 -noout -subject -issuer
+   # Look for "Default TLS Store defined in multiple namespaces" (missing labelSelector/commonLabels)
+   kubectl logs -n traefik-private deploy/traefik-private | grep -i tls
+   ```
+
+2. **Certificate not ready**:
    ```bash
    kubectl get certificate priv-wildcard -n traefik-private
    kubectl describe certificate priv-wildcard -n traefik-private
    ```
 
-2. **Check cert-manager logs**:
+3. **Check cert-manager logs**:
    ```bash
    kubectl logs -n traefik-private -l app.kubernetes.io/instance=cert-manager
    ```
 
-3. **Verify ClusterIssuer**:
+4. **Verify ClusterIssuer**:
    ```bash
    kubectl get clusterissuer letsencrypt-cloudflare
    kubectl describe clusterissuer letsencrypt-cloudflare
    ```
 
-4. **Certificate secret key mismatch**:
+5. **Certificate secret key mismatch**:
    If you see errors like `specified key "api-token" not found in secret`, the secret may have been created with only one key. The secret needs both keys:
    - `api-token`: used by cert-manager
    - `cloudflare_api_token`: used by external-dns
-   
+
    Fix by updating the secret:
    ```bash
    kubectl patch secret cloudflare-api-token -n traefik-private --type='json' \
      -p='[{"op": "add", "path": "/data/api-token", "value": "'$(echo -n "${CLOUDFLARE_API_TOKEN}" | base64)'"}]'
    ```
-   
+
    Or recreate it with both keys:
    ```bash
    kubectl create secret generic cloudflare-api-token \
@@ -398,7 +418,7 @@ To use the wildcard certificate in other namespaces:
 
 1. **External-DNS conflicting record types**:
    If External-DNS logs show "contains conflicting record type candidates; discarding CNAME record", there may be both CNAME and A records in Cloudflare for the same domain.
-   
+
    - Check Cloudflare DNS for conflicting records
    - Remove any CNAME records that conflict with A records managed by External-DNS
    - External-DNS will update the A record automatically once conflicts are resolved
@@ -454,4 +474,3 @@ private/
 ├── helm-uninstall.sh
 └── README.md (this file)
 ```
-
