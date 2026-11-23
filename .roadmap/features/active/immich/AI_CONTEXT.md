@@ -105,7 +105,7 @@ Tailscale VPN
 - Namespace-per-app: all resources in `immich` namespace
 - Static NFS PV with human-readable NAS path: `/volume1/k8s-homelab/media/photos`
 - deploy.sh creates NAS directories via temporary PV/PVC + Job (same as audiobookshelf)
-- Private ingress: `ingressClassName: traefik-private` with `priv-wildcard-tls` TLS secret
+- Private ingress: `ingressClassName: traefik-private` with `tls.hosts` only; Traefik serves `priv-wildcard-tls` as its default
 
 ### Things to Avoid
 
