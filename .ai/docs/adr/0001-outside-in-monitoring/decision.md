@@ -72,16 +72,16 @@ link. At first glance each is an uptime page; everything deeper sits in collapse
 | Check toggle | Step-by-step report naming hosts, routes (Cloudflare, Traefik) and the code that defines the check | A plain-language description: what is checked, how often, what a red bar means |
 | Run log | Yes (its error lines can name hosts and IP addresses) | No |
 | Links to the repo | Yes | None |
-| 14-day uptime | One table row under each service's bars; the toggle lists the exact query behind every number | Same |
+| 14-day uptime | In each service's toggle: one table row, then pseudocode of the queries behind it | Same |
 
 ![Internal dashboard: every service, stats on the left, one bar per run, toggles underneath](images/decision/internal-dashboard.jpg)
 
-![External dashboard: K2's 14-day row under its bars, and its toggle open with the description and the queries](images/decision/external-dashboard.jpg)
+![External dashboard: K2's toggle open with the description, its 14-day row and the pseudocode of its queries](images/decision/external-dashboard.jpg)
 
 ## How uptime is calculated
 
-Each formula in words, then with an example's numbers. On the dashboards, each service's toggle states
-the same formulas in words, followed by the exact query that service runs.
+Each formula in words, then with an example's numbers. On the dashboards, each service's toggle shows its
+14-day row and the same steps as pseudocode with that service's own job name and locations.
 
 ![Uptime: readings up divided by readings expected](images/uptime-math/uptime-1-formula.png)
 
@@ -97,19 +97,34 @@ each check's latest result about once a minute, so `probe_success` holds its val
 disappears while the probe or its network is down. Both numbers are computed straight from the raw
 results (`monitoring/terraform/slos.tf`, `status_dashboard.tf`):
 
-```promql
-# Readings up over 14 days: every 5 minutes ([...:5m]), each location's share of those 5 minutes whose
-# latest result passed (avg_over_time), one series per location (max by (probe): editing a check briefly
-# overlaps old and new series); a 5-minute period with no result adds 0 (or vector(0))
-sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job="k2-health"}[5m]))) or vector(0))[14d:5m])
+```python
+# inputs
+job               = "k2-health"
+locations         = 1                          # probe locations running this check
+period            = 5 * 60                     # seconds in one reading period (5 minutes)
+periods_per_day   = 24 * 12                    # = 288: 12 five-minute periods an hour
+periods_in_window = 14 * periods_per_day       # = 4,032: 14 days
 
-# Readings expected over 14 days: locations × 5-minute periods since the check's first result in the window,
-# at most 4,032 (14 days). It comes from the clock, not from what arrived
-1 * clamp_max(ceil((time() - min(min_over_time(timestamp(probe_success{job="k2-health"})[14d:5m]))) / 300), 4032)
+# from the check results
+first_result = min(min_over_time(timestamp(probe_success{job=job})[14d:5m]))
+    # time of the check's first result in the window
+readings_up  = sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job=job}[5m]))) or vector(0))[14d:5m])
+    # every 5 minutes, each location's share of the period its latest result passed (avg_over_time),
+    # one series per location (max by (probe)); no result adds 0 (or vector(0))
+
+# arithmetic
+readings_expected = locations * clamp_max(ceil((time() - first_result) / period), periods_in_window)
+    # periods since the first result, at most the whole window: from the clock, not from what arrived
+readings_down     = readings_expected - readings_up
+uptime            = readings_up / readings_expected
+downtime          = readings_down * period / locations           # seconds
+days_measured     = readings_expected / (locations * periods_per_day)
 ```
 
-Uptime, readings down, downtime and days measured are arithmetic on these two. The 24 h stat uses the same
-two queries over 24 h (at most 288 periods). Two simpler forms were tried and rejected: counting samples
+PromQL has no variables, so the dashboard runs each column with the names written out, keeping the
+products as written (`/ (5 * 60)`, `clamp_max(..., 14 * 288)`).
+
+The 24 h stat uses the same two building blocks over 24 h (at most 288 periods). Two simpler forms were tried and rejected: counting samples
 overcounts (one run is published many times), and `increase()` of the run counter loses runs that straddle
 a bucket edge.
 

@@ -33,8 +33,9 @@ locals {
   readings_up       = "sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job=\"%s\"}[5m]))) or vector(0))[%s:5m])"
   readings_expected = "sum_over_time(vector(%d)[%s:5m])"
   # Readings expected over a range of N five-minute periods, counted from the check's first result in the last 14 days
-  # (a new check isn't charged for the days before it existed). %d locations, %s job, %d = N (288 = 24 h, 4032 = 14 d)
-  readings_expected_since_first = "%d * clamp_max(ceil((time() - min(min_over_time(timestamp(probe_success{job=\"%s\"})[14d:5m]))) / 300), %d)"
+  # (a new check isn't charged for the days before it existed). %d locations, %s job, %s = N periods
+  # ("288" = 24 h of 5-minute periods, "14 * 288" = 14 days)
+  readings_expected_since_first = "%d * clamp_max(ceil((time() - min(min_over_time(timestamp(probe_success{job=\"%s\"})[14d:5m]))) / (5 * 60)), %s)"
   slo_query = { for k, s in local.slo_services : k => format("%s / %s",
     format(local.readings_up, s.job, "$__rate_interval"), format(local.readings_expected, s.locations, "$__rate_interval")
   ) }

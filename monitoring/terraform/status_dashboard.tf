@@ -58,44 +58,56 @@ locals {
     UP       = "UPQ"
     DOWN     = "EXP - UPQ"
     UPTIME   = "UPQ / EXP"
-    DOWNTIME = "(EXP - UPQ) * 300 / LOCS" # seconds
-    DAYS     = "EXP / (LOCS * 288)"       # 288 readings per day
+    DOWNTIME = "(EXP - UPQ) * (5 * 60) / LOCS" # seconds
+    DAYS     = "EXP / (LOCS * 288)"            # 288 readings per day
   }
   uptime_col_order = ["EXPECTED", "UP", "DOWN", "UPTIME", "DOWNTIME", "DAYS"]
   uptime_col_names = {
     EXPECTED = "Readings expected", UP = "Readings up", DOWN = "Readings down",
     UPTIME   = "Uptime", DOWNTIME = "Downtime", DAYS = "Days measured"
   }
-  uptime_col_words = {
-    EXPECTED = "locations × 5-minute periods since the check's first result (at most 14 days)"
-    UP       = "readings whose latest result passed (no result = not up)"
-    DOWN     = "Readings expected − Readings up"
-    UPTIME   = "Readings up ÷ Readings expected"
-    DOWNTIME = "Readings down × 5 minutes ÷ locations (in seconds)"
-    DAYS     = "Readings expected ÷ (locations × 288 readings a day)"
-  }
+
   uptime_expr = { for s in local.status_services : s.job => {
     for col, tmpl in local.uptime_cols : col => replace(replace(replace(tmpl,
-      "EXP", "(${format(local.readings_expected_since_first, s.locs, s.job, 4032)})"),
+      "EXP", "(${format(local.readings_expected_since_first, s.locs, s.job, "14 * 288")})"),
       "UPQ", "(${format(local.readings_up, s.job, local.slo_window)})"),
     "LOCS", s.locs)
   } if s.slo != null }
-  u14_h     = 3  # the one-row table under the bars
-  queries_h = 21 # the queries text panel in the toggle
-  queries_text = { for s in local.status_services : s.job => join("\n\n", concat([
-    "**${s.name}: where the 14-day numbers above come from.** Every 5 minutes, each check location gives one reading: **up** if its latest result passed, **down** if it failed or if no result arrived. This check runs from ${s.locs} location${s.locs > 1 ? "s" : ""}. Until monitoring has run for ${local.window_days} days, the numbers cover only the days measured.",
-    ], flatten([for c in local.uptime_col_order : [
-      "**${local.uptime_col_names[c]}** = ${local.uptime_col_words[c]}",
-      "```promql\n${local.uptime_expr[s.job][c]}\n```",
-    ]]), [
-    "**How the two building blocks work.** Readings up: every 5 minutes (`[...:5m]`), each location's share of those 5 minutes its latest result was passing (`avg_over_time`, one series per location with `max by (probe)`), added up over the window; a 5-minute period with no result adds 0 (`or vector(0)`). Readings expected: the number of 5-minute periods since the check's first result (`timestamp`), at most 14 days' worth, times the number of locations. It comes from the schedule, not from what arrived, which is what makes a missing result count as down.",
-  ])) if s.slo != null }
+  u14_h     = 3  # the one-row 14-day table in the toggle
+  queries_h = 13 # the pseudocode text panel in the toggle
+  queries_text = { for s in local.status_services : s.job => join("\n\n", [
+    "**${s.name}: the 14-day numbers above, step by step.** Every 5 minutes, each check location gives one reading: **up** if its latest result passed, **down** if it failed or if no result arrived. In pseudocode with named steps (the table runs the same PromQL with every name written out, because PromQL has no variables):",
+    join("\n", [
+      "```python",
+      "# inputs",
+      "job               = \"${s.job}\"",
+      "locations         = ${s.locs}                          # probe locations running this check",
+      "period            = 5 * 60                     # seconds in one reading period (5 minutes)",
+      "periods_per_day   = 24 * 12                    # = 288: 12 five-minute periods an hour",
+      "periods_in_window = ${local.window_days} * periods_per_day       # = 4,032: ${local.window_days} days",
+      "",
+      "# from the check results",
+      "first_result = min(min_over_time(timestamp(probe_success{job=job})[14d:5m]))",
+      "    # time of the check's first result in the window",
+      "readings_up  = sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job=job}[5m]))) or vector(0))[14d:5m])",
+      "    # every 5 minutes, each location's share of the period its latest result passed; no result adds 0",
+      "",
+      "# arithmetic",
+      "readings_expected = locations * clamp_max(ceil((time() - first_result) / period), periods_in_window)",
+      "    # periods since the first result, at most the whole window: from the clock, not from what arrived",
+      "readings_down     = readings_expected - readings_up",
+      "uptime            = readings_up / readings_expected",
+      "downtime          = readings_down * period / locations           # seconds",
+      "days_measured     = readings_expected / (locations * periods_per_day)",
+      "```",
+    ]),
+  ]) if s.slo != null }
 
   # ---- one block of rows per service ----
   dash_services = { for d, dash in local.status_dashboards : d => [for s in local.status_services : s if contains(dash.jobs, s.job)] }
   t14           = { for s in local.status_services : s.job => s.slo != null ? local.u14_h : 0 }
   tq            = { for s in local.status_services : s.job => s.slo != null ? local.queries_h : 0 }
-  block_h       = { for d, services in local.dash_services : d => [for s in services : 1 + local.row_h + local.t14[s.job] + 1] }
+  block_h       = { for d, services in local.dash_services : d => [for s in services : 1 + local.row_h + 1] }
   block_y       = { for d, hs in local.block_h : d => [for i, h in hs : sum(concat([0], slice(hs, 0, i)))] }
   report_h      = { for d, dash in local.status_dashboards : d => { for s in local.status_services : s.job => dash.internal ? s.report_h : 3 } }
   service_panels = { for d, services in local.dash_services : d => flatten([for i, s in services : concat([
@@ -117,7 +129,7 @@ locals {
       targets = [{ refId = "A", instant = true,
         # same readings as the 14-day row: 5-minute readings with no result count as down; readings from before the
         # check's first result are left out, so a new check doesn't start near 0 %
-      expr = "${format(local.readings_up, s.job, "24h")} / (${format(local.readings_expected_since_first, s.locs, s.job, 288)})" }]
+      expr = "${format(local.readings_up, s.job, "24h")} / (${format(local.readings_expected_since_first, s.locs, s.job, "288")})" }]
       options = { colorMode = "value", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
       fieldConfig = { defaults = { unit = "percentunit", decimals = 2, noValue = "no data", thresholds = { mode = "absolute",
       steps = [{ color = "red", value = null }, { color = "orange", value = 0.95 }, { color = "green", value = 0.99 }] } } }
@@ -149,40 +161,39 @@ locals {
         { matcher = { id = "byName", options = o[0] }, properties = [{ id = "color", value = { mode = "fixed", fixedColor = o[1] } }] }]
       }
     },
-    ], [for t in [{
-      id      = i * 20 + 9, type = "table", datasource = local.prom
-      title   = "${s.name}: last ${local.window_days} days, or since monitoring began (no result = down; queries in the toggle below)"
-      gridPos = { x = 0, y = local.block_y[d][i] + 1 + local.row_h, w = 24, h = local.u14_h }
-      targets = [for col in local.uptime_col_order : { refId = col, instant = true, format = "table", expr = try(local.uptime_expr[s.job][col], "") }]
-      transformations = [
-        { id = "merge", options = {} },
-        { id = "organize", options = {
-          excludeByName = { Time = true }
-          indexByName   = { for i2, c in local.uptime_col_order : "Value #${c}" => i2 }
-          renameByName  = { for c in local.uptime_col_order : "Value #${c}" => local.uptime_col_names[c] }
-        } },
-      ]
-      fieldConfig = {
-        defaults = { decimals = 0 }
-        overrides = [
-          { matcher = { id = "byName", options = "Uptime" }, properties = [{ id = "unit", value = "percentunit" }, { id = "decimals", value = 2 }] },
-          { matcher = { id = "byName", options = "Downtime" }, properties = [{ id = "unit", value = "dtdurations" }] },
-          { matcher = { id = "byName", options = "Days measured" }, properties = [
-          { id = "decimals", value = 1 }, { id = "unit", value = "suffix: of ${local.window_days}" }] },
-        ]
-      }
-    }] : t if s.slo != null], [
     {
       id      = i * 20 + 6, type = "row", title = s.slo != null ? "${s.name}: how this check and its uptime work (click to expand)" : "${s.name}: how this check works (click to expand)", collapsed = true
-      gridPos = { x = 0, y = local.block_y[d][i] + 1 + local.row_h + local.t14[s.job], w = 24, h = 1 }
+      gridPos = { x = 0, y = local.block_y[d][i] + 1 + local.row_h, w = 24, h = 1 }
       panels = concat([{
         id      = i * 20 + 4, type = "text", title = "", transparent = true
-        gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.t14[s.job], w = 24, h = local.report_h[d][s.job] }
+        gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h, w = 24, h = local.report_h[d][s.job] }
         # internal: the step-by-step report (hosts, routes, code links); external: the plain-language `about`
         options = { mode = "markdown", content = local.status_dashboards[d].internal ? templatefile("${path.module}/../reports/${s.job}.md", { img = local.img_url, repo = local.repo_url }) : s.about }
-        }], [for q in [{
+        }], [for t in [{
+          id      = i * 20 + 9, type = "table", datasource = local.prom
+          title   = "${s.name}: last ${local.window_days} days, or since monitoring began (no result = down; the queries are below)"
+          gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.report_h[d][s.job], w = 24, h = local.u14_h }
+          targets = [for col in local.uptime_col_order : { refId = col, instant = true, format = "table", expr = try(local.uptime_expr[s.job][col], "") }]
+          transformations = [
+            { id = "merge", options = {} },
+            { id = "organize", options = {
+              excludeByName = { Time = true }
+              indexByName   = { for i2, c in local.uptime_col_order : "Value #${c}" => i2 }
+              renameByName  = { for c in local.uptime_col_order : "Value #${c}" => local.uptime_col_names[c] }
+            } },
+          ]
+          fieldConfig = {
+            defaults = { decimals = 0 }
+            overrides = [
+              { matcher = { id = "byName", options = "Uptime" }, properties = [{ id = "unit", value = "percentunit" }, { id = "decimals", value = 2 }] },
+              { matcher = { id = "byName", options = "Downtime" }, properties = [{ id = "unit", value = "dtdurations" }] },
+              { matcher = { id = "byName", options = "Days measured" }, properties = [
+              { id = "decimals", value = 1 }, { id = "unit", value = "suffix: of ${local.window_days}" }] },
+            ]
+          }
+          }] : t if s.slo != null], [for q in [{
           id      = i * 20 + 11, type = "text", title = "", transparent = true
-          gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.t14[s.job] + local.report_h[d][s.job], w = 24, h = local.queries_h }
+          gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.report_h[d][s.job] + local.t14[s.job], w = 24, h = local.queries_h }
           options = { mode = "markdown", content = lookup(local.queries_text, s.job, "") }
         }] : q if s.slo != null], [{
         id      = i * 20 + 8, type = "table", datasource = local.prom
