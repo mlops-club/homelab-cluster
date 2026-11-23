@@ -341,11 +341,11 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik-private
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
   - hosts:
     - immich.priv.mlops-club.org
     - photos.priv.mlops-club.org
-    secretName: priv-wildcard-tls
   rules:
   - host: immich.priv.mlops-club.org
     http:
@@ -382,10 +382,10 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik-private
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
   - hosts:
     - photos.priv.mlops-club.org
-    secretName: priv-wildcard-tls
   rules:
   - host: photos.priv.mlops-club.org
     http:

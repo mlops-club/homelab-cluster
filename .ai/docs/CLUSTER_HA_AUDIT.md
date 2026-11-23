@@ -80,7 +80,7 @@ plus image pull and start time). StatefulSets in this tier do **not** recover on
 | Service | Why it is not HA | Recommendation |
 |---------|------------------|----------------|
 | cert-manager, cainjector, webhook | <ul><li>All `replicas: 1`. While the webhook is down, creating or updating cert-manager resources fails</li></ul> | <ul><li>Acceptable as-is (certificates last 90 days). Optional: `replicaCount: 2` for `webhook` with a PDB</li></ul> |
-| external-dns, reflector, tailscale operator, cloudflare-tunnel-ingress-controller | <ul><li>`replicas: 1`; new DNS records, mirrored secrets and new ingresses are delayed</li></ul> | <ul><li>Acceptable as-is; existing state keeps working</li></ul> |
+| external-dns, tailscale operator, cloudflare-tunnel-ingress-controller | <ul><li>`replicas: 1`; new DNS records and new ingresses are delayed</li></ul> | <ul><li>Acceptable as-is; existing state keeps working</li></ul> |
 | MetalLB controller, csi-nfs-controller, local-path-provisioner | <ul><li>`replicas: 1`; new IP assignments and new NFS PV provisioning wait until the pod reschedules</li><li>Mounts of existing NFS volumes are unaffected (handled by the `csi-nfs-node` DaemonSet)</li></ul> | <ul><li>Acceptable as-is. Optional: `controller.replicas: 2` for csi-driver-nfs (it has leader election)</li></ul> |
 | metrics-server, kube-state-metrics, OTel operator, OTel `gateway-collector`, GPU operator, NFD | <ul><li>`replicas: 1`. `gateway-collector` has a PDB with `maxUnavailable: 1`, which with one replica protects nothing</li><li>While they are down, HPA metrics, dashboards and telemetry stop</li></ul> | <ul><li>Acceptable as-is. Optional: run `gateway-collector` with 2 replicas so its PDB has an effect</li></ul> |
 

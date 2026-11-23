@@ -64,7 +64,7 @@ The script is idempotent and performs these operations in order:
 1. Validates prerequisites (`.env`, inventory, SSH, helmfile, helm-diff)
 2. Bootstraps K3s cluster via Ansible
 3. Configures kubeconfig for local kubectl access
-4. Deploys all infrastructure via `helmfile apply` (cert-manager, reflector, tailscale-operator, external-dns, traefik-private, cloudflare-tunnel, traefik-public, csi-driver-nfs, harbor)
+4. Deploys all infrastructure via `helmfile apply` (cert-manager, tailscale-operator, external-dns, traefik-private, cloudflare-tunnel, traefik-public, csi-driver-nfs, harbor)
 
 To also deploy example apps:
 ```bash

@@ -58,10 +58,10 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik-private
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
   - hosts:
     - whoami-internal.priv.mlops-club.org
-    secretName: priv-wildcard-tls
   rules:
   - host: whoami-internal.priv.mlops-club.org
     http:
@@ -85,11 +85,11 @@ spec:
 # Host: whoami-internal-3.priv.mlops-club.org
 
 
-Public Path:
+# Public Path:
 
-CNAME: *.mlops-club.org -> traefik.mlops-club.org
-CNAME: traefik.mlops-club.org -> <uuid>.cloudflare-tunnel.com (k3s-tunnel)
+# CNAME: *.mlops-club.org -> traefik.mlops-club.org
+# CNAME: traefik.mlops-club.org -> <uuid>.cloudflare-tunnel.com (k3s-tunnel)
 
-k3s-tunnel -> http://traefik-public.traefik-public.svc.cluster.local:80
+# k3s-tunnel -> http://traefik-public.traefik-public.svc.cluster.local:80
 
-client -> tunnel server (TLS termination w/ a CF-managed cert) -> traefik public service -> apps
+# client -> tunnel server (TLS termination w/ a CF-managed cert) -> traefik public service -> apps

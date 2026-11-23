@@ -6,9 +6,8 @@ expose:
   type: ingress
   tls:
     enabled: true
-    certSource: secret
-    secret:
-      secretName: priv-wildcard-tls
+    # none: the chart names no secret; traefik-private serves its default certificate (priv-wildcard-tls)
+    certSource: none
   ingress:
     controller: default
     className: traefik-private
@@ -24,7 +23,6 @@ persistence:
   enabled: true
   resourcePolicy: "keep"
   persistentVolumeClaim:
-    registry:
     jobservice:
       jobLog:
         storageClass: nas-nfs

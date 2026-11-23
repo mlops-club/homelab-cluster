@@ -56,10 +56,10 @@ metadata:
     external-dns.alpha.kubernetes.io/hostname: nginx.priv.mlops-club.org
 spec:
   ingressClassName: traefik-private
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
   - hosts:
     - nginx.priv.mlops-club.org
-    secretName: priv-wildcard-tls
   rules:
   - host: nginx.priv.mlops-club.org
     http:
@@ -71,4 +71,3 @@ spec:
             name: nginx-priv
             port:
               number: 80
-
