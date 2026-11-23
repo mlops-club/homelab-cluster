@@ -18,10 +18,10 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik-private
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
     - hosts:
         - chat.priv.mlops-club.org
-      secretName: priv-wildcard-tls
   rules:
     - host: chat.priv.mlops-club.org
       http:

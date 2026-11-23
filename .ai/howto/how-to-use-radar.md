@@ -71,7 +71,7 @@ chart `skyhook/radar`, pinned version) with values in `radar/values.yaml`.
 
 | Setting | Value | Why |
 |---|---|---|
-| Hostname | `radar.priv.mlops-club.org` | Same private path as other `*.priv` services: `traefik-private` ingress class, reflector-replicated `priv-wildcard-tls`, external-dns record pointing at Traefik's Tailscale IP |
+| Hostname | `radar.priv.mlops-club.org` | Same private path as other `*.priv` services: `traefik-private` ingress class, TLS from traefik-private's default certificate (`priv-wildcard-tls`, no `secretName` in the Ingress), external-dns record pointing at Traefik's Tailscale IP |
 | `auth.mode` | `none` (chart default) | The Tailnet is the access boundary, as for `ollama.priv` |
 | RBAC | chart default read-only; `secrets`, `helm`, `portForward`, `podExec` all `false` | Anyone on the Tailnet acts as Radar's ServiceAccount, so it can only get/list/watch |
 | `disableExec` | `true` | Removes `pods/exec` from the ServiceAccount; no terminals, debug shells, or `exec_pod` MCP tool |
@@ -108,7 +108,7 @@ graph, then run the two commands above. Keep the laptop CLI on the same version
 
 ```bash
 kubectl -n radar get pods,pvc,ingress
-kubectl -n radar get secret priv-wildcard-tls     # must exist for HTTPS
+kubectl get tlsstore -A                           # one `default` per Traefik namespace serves HTTPS
 curl -s -o /dev/null -w "%{http_code}\n" https://radar.priv.mlops-club.org/api/health   # 200 (from a Tailnet device)
 ```
 
@@ -169,7 +169,7 @@ kubectl -n radar port-forward svc/radar 9280:9280   # then open http://localhost
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Ingress serves Traefik's default cert / TLS error | `priv-wildcard-tls` was not reflected into the `radar` namespace (reflector missed the new namespace) | `kubectl -n traefik-private rollout restart deploy/reflector`, then check `kubectl -n radar get secret priv-wildcard-tls` |
+| Ingress serves `TRAEFIK DEFAULT CERT` / TLS error | traefik-private has no usable `default` TLSStore (missing, unlabeled, or a second `default` visible to it) | `kubectl get tlsstore -A` (exactly one `default` per Traefik namespace); `openssl s_client -connect radar.priv.mlops-club.org:443 -servername foo.example.com </dev/null \| openssl x509 -noout -subject` must show `*.priv.mlops-club.org`. See `network/private/README.md` → Certificate Issues |
 | Browser and `claude mcp get radar` time out | The device cannot reach `traefik-private-traefik-private-2` on the Tailnet | `tailscale ping 100.95.181.95`; reconnect Tailscale. Use port-forward meanwhile |
 | "Radar without authentication answers only ..." | Reached via a hostname not in `allowedHosts` | Use `radar.priv.mlops-club.org`, or add the hostname to `allowedHosts` in `radar/values.yaml` |
 | `claude mcp` returns 404 on `/mcp` | `--mcp-read-only` disables the write endpoint | Use `/mcp-readonly` |

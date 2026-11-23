@@ -26,6 +26,7 @@ documentation:
     - adr/0001-outside-in-monitoring/grafana-poc.md (Grafana Cloud POC: credential setup with annotated screenshots, POC test order)
     - adr/0001-outside-in-monitoring/decision.md (decision: Grafana Cloud checks, in-cluster probe, no-data SLOs, Discord routing, billing, Terraform state in the cluster; key terms and annotated screenshots)
     - adr/0001-outside-in-monitoring/telemetry-plan.md (plan: minimal cluster-wide traces, metrics and logs into Grafana Cloud via Traefik OTLP)
+    - adr/0002-traefik-default-certificate/decision.md (default TLSStore per Traefik, label-scoped CRD provider, Reflector removed)
 
 howto:
   location: .ai/howto/

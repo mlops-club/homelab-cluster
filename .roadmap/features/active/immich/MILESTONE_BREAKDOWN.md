@@ -111,13 +111,13 @@ apps/immich/deploy.sh       (new)
 - [ ] Configure WebSocket support for `/api/socket.io/`
 - [ ] Add Traefik middleware or annotations for extended timeouts (600s)
 - [ ] Add Traefik middleware or annotations for large upload support
-- [ ] Reference `priv-wildcard-tls` for TLS
+- [ ] List `tls.hosts` with no `secretName` (traefik-private serves `priv-wildcard-tls` as its default)
 
 ### Ingress configuration
 
 - `ingressClassName: traefik-private`
 - Two host rules: `immich.priv.mlops-club.org` and `photos.priv.mlops-club.org`
-- TLS using `priv-wildcard-tls` secret (replicated by Reflector from `traefik-private` namespace)
+- TLS from traefik-private's default certificate (`priv-wildcard-tls`, TLSStore in `traefik-private`)
 - Annotations for:
   - WebSocket upgrade headers
   - Response timeout 600s

@@ -42,15 +42,26 @@ entryPoints:
       tls:
         enabled: true
 
-# Configure TLS store with wildcard certificate as default
-tls:
-  stores:
-    default:
-      defaultCertificate:
-        secretName: mlops-wildcard-tls
+# Default certificate for every router that names no TLS secret. Chart 38 renders this as the
+# `default` TLSStore CRD (the old `tls.stores` key is ignored by the chart)
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: mlops-wildcard-tls
+
+# Labels every chart-rendered object, including the default TLSStore, so kubernetesCRD.labelSelector
+# below picks it up. Not part of the pod selector, so upgrades keep working
+commonLabels:
+  traefik.mlops-club.org/instance: public
 
 # Configure Kubernetes provider to watch all namespaces
 providers:
+  # Traefik's own object types (TLSStore, IngressRoute, Middleware) are read only when labeled
+  # traefik.mlops-club.org/instance=public, from any namespace. Without it each instance also reads the
+  # other's `default` TLSStore, and two default stores make Traefik drop the default certificate.
+  # Plain Ingress objects are selected by ingressClass below, not by this label
+  kubernetesCRD:
+    labelSelector: traefik.mlops-club.org/instance=public
   kubernetesIngress:
     namespaces: []  # Empty array means watch all namespaces
     # Both IngressClasses (traefik-public, traefik-private) share the controller

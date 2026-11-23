@@ -20,7 +20,7 @@
 #     SQLite file locking over NFS is unreliable; same choice as open-webui.
 #     maxSize stays below the PVC size so Radar prunes before the disk fills.
 #   - usageReporting is explicitly off: no telemetry leaves the homelab.
-#   - TLS reuses the reflector-replicated priv-wildcard-tls secret and the
+#   - TLS uses traefik-private's default certificate (priv-wildcard-tls) and the
 #     traefik-private ingress class; external-dns publishes the hostname to
 #     Cloudflare pointing at traefik-private's Tailscale IP.
 
@@ -75,7 +75,7 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+  # No secretName: Traefik serves its default certificate (network/private/traefik/values.yaml)
   tls:
-    - secretName: priv-wildcard-tls
-      hosts:
+    - hosts:
         - radar.priv.mlops-club.org

@@ -106,7 +106,7 @@ The cluster runs on physical Intel NUC machines on a home LAN:
 ### Private Path
 Tailscale VPN → External-DNS (Cloudflare) → cert-manager (Let's Encrypt) → Traefik Private → Services
 
-Services are accessible at `*.priv.mlops-club.org` via Tailscale only. External-DNS automatically creates DNS records pointing to Traefik's Tailscale IP. TLS uses a wildcard cert (`priv-wildcard-tls`).
+Services are accessible at `*.priv.mlops-club.org` via Tailscale only. External-DNS automatically creates DNS records pointing to Traefik's Tailscale IP. TLS uses a wildcard cert (`priv-wildcard-tls`) that lives only in `traefik-private` and is served as Traefik's default certificate through the `default` TLSStore; Ingresses list `tls.hosts` without `secretName`. Each Traefik reads its own CRD objects (TLSStore, Middleware, IngressRoute) only when labeled `traefik.mlops-club.org/instance: private` or `public` (see `.ai/docs/adr/0002-traefik-default-certificate/decision.md`).
 
 ### Public Path
 Internet → Cloudflare (TLS termination) → Cloudflare Tunnel → Traefik Public → Services

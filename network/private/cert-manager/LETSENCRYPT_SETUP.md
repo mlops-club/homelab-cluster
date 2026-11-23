@@ -2,12 +2,12 @@
 
 ## Overview
 
-Private ingress now uses a single wildcard cert (`*.priv.mlops-club.org`) issued by cert-manager via Cloudflare DNS-01 and served by Traefik’s default TLS store. Individual services no longer request per-host certs; they reference the shared secret.
+Private ingress uses a single wildcard cert (`*.priv.mlops-club.org`) issued by cert-manager via Cloudflare DNS-01 and served by Traefik’s default TLS store (the `default` TLSStore in `traefik-private`). Services do not request per-host certs and do not name a TLS secret; Traefik serves the wildcard to every private Ingress. Design record: [ADR 0002](../../../.ai/docs/adr/0002-traefik-default-certificate/decision.md).
 
 ## Namespaces and secrets in play
 - `cert-manager`: runs cert-manager and holds `cloudflare-api-token`.
 - `traefik-private`: runs Traefik and holds the wildcard secret `priv-wildcard-tls`.
-- App namespaces (e.g., `whoami-priv`, `default`, or your own): each needs a copy of `priv-wildcard-tls` if the Ingress there references it.
+- App namespaces (e.g., `whoami-priv`, `default`, or your own): hold no TLS secret. Their Ingresses list `tls.hosts` without `secretName`.
 
 ## Architecture
 
@@ -19,7 +19,8 @@ Private ingress now uses a single wildcard cert (`*.priv.mlops-club.org`) issued
 4. **Challenge**: DNS-01 challenge that proves domain ownership
 5. **Cloudflare API**: Used to create DNS TXT records for validation
 6. **Let's Encrypt**: Public CA that issues trusted certificates
-7. **Traefik (private)**: Terminates TLS using `priv-wildcard-tls` as default cert on entrypoint `websecure`
+7. **TLSStore `default`** (ns `traefik-private`): points Traefik's default certificate at `priv-wildcard-tls`
+8. **Traefik (private)**: Terminates TLS with that default cert on entrypoint `websecure`
 
 ### Certificate flow (wildcard)
 
@@ -46,8 +47,8 @@ sequenceDiagram
     CM->>LE: Notify ready
     LE->>CM: Issue cert
     CM->>Cert: Write secret priv-wildcard-tls (ns: traefik-private)
-    Cert->>TQ: Traefik default TLS store uses priv-wildcard-tls
-    User->>App: Deploy Ingress (ns: your-namespace) referencing priv-wildcard-tls (copied into that ns)
+    Cert->>TQ: TLSStore default (ns: traefik-private) points at priv-wildcard-tls
+    User->>App: Deploy Ingress (ns: your-namespace) with tls.hosts, no secretName
     TQ->>App: Terminates TLS with wildcard and routes to service
 
     Note over CM: Auto-renews before expiration
@@ -96,7 +97,7 @@ The wildcard certificate and private key are stored in:
 - **Namespace**: `traefik-private`
 - Keys: `tls.crt`, `tls.key`
 
-You must copy this secret into any namespace where an Ingress references it.
+This is the only copy. Traefik reads it from its own namespace through the `default` TLSStore.
 
 ### 5. Automatic Renewal
 
@@ -104,7 +105,7 @@ cert-manager automatically:
 - Monitors certificate expiration
 - Renews certificates 30 days before expiration
 - Updates the secret with the new certificate
-- Traefik automatically picks up the new certificate
+- Traefik picks up the new certificate from the same secret (no copies to refresh)
 
 ## Configuration
 
@@ -141,7 +142,7 @@ The Cloudflare API token is stored in:
 
 ### Ingress Configuration (using wildcard)
 
-Reference the shared secret in your namespace:
+List the host under `tls` and leave out `secretName`:
 
 ```yaml
 metadata:
@@ -153,7 +154,6 @@ spec:
   tls:
   - hosts:
     - myapp.priv.mlops-club.org
-    secretName: priv-wildcard-tls
   rules:
   - host: myapp.priv.mlops-club.org
     http:
@@ -174,7 +174,7 @@ spec:
 - **Subject**: `CN=*.priv.mlops-club.org`
 - **Issuer**: `Let's Encrypt`
 - **Secret**: `priv-wildcard-tls` (ns: `traefik-private`)
-- **Traefik default cert**: set via Helm values `tls.stores.default.defaultCertificate.secretName=priv-wildcard-tls`
+- **Traefik default cert**: set via Helm values `tlsStore.default.defaultCertificate.secretName=priv-wildcard-tls` (chart 38 ignores a `tls.stores` key). The chart renders it as a `TLSStore` named `default`, labeled `traefik.mlops-club.org/instance: private` so traefik-private's `kubernetesCRD.labelSelector` reads it and traefik-public does not
 
 ### Certificate Files
 
@@ -209,12 +209,13 @@ kubectl logs -n cert-manager -l app=cert-manager
 1. **DNS Propagation**: DNS TXT records may take time to propagate
 2. **API Token Permissions**: Ensure Cloudflare API token has DNS:Edit permission
 3. **Rate Limits**: Let's Encrypt has rate limits (50 certs/week per domain)
-4. **Secret placement**: The TLS secret must exist in the same namespace as the Ingress that references it.
+4. **`TRAEFIK DEFAULT CERT` served**: the default TLSStore is missing, unlabeled, or duplicated. `kubectl get tlsstore -A` must show exactly one `default` per Traefik namespace, and `openssl s_client -connect whoami.priv.mlops-club.org:443 -servername foo.example.com </dev/null | openssl x509 -noout -subject` must show `*.priv.mlops-club.org`. Traefik logs `Default TLS Store defined in multiple namespaces` when both stores are visible to one instance
+5. **`Error configuring TLS: secret ... does not exist`** in Traefik logs: an Ingress names a `secretName` missing from its namespace. The host still gets the default cert; drop `secretName` from that Ingress.
 
 ## Security Notes
 
 - The wildcard key is in Kubernetes secrets; do not export/commit it.
-- Limit RBAC so only Traefik and designated namespaces can read `priv-wildcard-tls`.
+- Only `traefik-private` holds `priv-wildcard-tls`; limit RBAC on that namespace so only Traefik and cluster admins can read it.
 - Cloudflare API token should be scoped (DNS:Edit, Zone:Read) and stored only in `cert-manager` namespace.
 
 ## Deploying a new private service (your namespace)
@@ -225,15 +226,11 @@ Example for `myteam-priv` namespace and host `app.priv.mlops-club.org`:
 # 1) Create namespace
 kubectl create namespace myteam-priv
 
-# 2) Copy the wildcard TLS secret into your namespace
-kubectl get secret priv-wildcard-tls -n traefik-private -o yaml \
-  | kubectl apply -n myteam-priv -f -
-
-# 3) Deploy your app + service (example)
+# 2) Deploy your app + service (example)
 kubectl -n myteam-priv create deploy app --image=nginx:1.27
 kubectl -n myteam-priv expose deploy app --port=80 --name=app
 
-# 4) Create Ingress referencing the wildcard secret
+# 3) Create Ingress (no secretName: Traefik serves the wildcard by default)
 cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -249,7 +246,6 @@ spec:
   tls:
   - hosts:
     - app.priv.mlops-club.org
-    secretName: priv-wildcard-tls
   rules:
   - host: app.priv.mlops-club.org
     http:
@@ -298,11 +294,14 @@ subject=CN = *.priv.mlops-club.org
 Check Traefik values:
 ```bash
 $ helm -n traefik-private get values traefik-private
-... tls.stores.default.defaultCertificate.secretName: priv-wildcard-tls
+... tlsStore.default.defaultCertificate.secretName: priv-wildcard-tls
+
+$ kubectl get tlsstore -A
+NAMESPACE         NAME      AGE
+traefik-private   default   ...
+traefik-public    default   ...
 ```
 
 If cert not served:
-- Restart Traefik after secret change:
-  `kubectl -n traefik-private rollout restart deploy/traefik-private`
-- Ensure secret exists in the same namespace as the Ingress.
-
+- Check the default TLSStore and the label selector (see Common Issues above).
+- Check Traefik logs: `kubectl -n traefik-private logs deploy/traefik-private | grep -i tls`

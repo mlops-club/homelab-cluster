@@ -50,7 +50,6 @@ graph TD
         CM -- postsync --> CF_SEC
         CM -- postsync --> CI
 
-        REF[reflector<br/><sub>v9.1.45</sub>]:::release
         TS[tailscale-operator<br/><sub>v1.92.5</sub>]:::release
         EDNS[external-dns<br/><sub>v1.20.0</sub>]:::release
 
@@ -84,7 +83,6 @@ graph TD
 
     %% ── INTER-RELEASE DEPENDENCIES (needs) ───────────────────────
     CM --> TP
-    REF --> TP
     TS --> TP
     EDNS --> TP
 
@@ -96,7 +94,7 @@ graph TD
     NFS --> HAR
     TP --> HAR
 
-    %% Radar needs traefik-private (ingress class + priv-wildcard-tls).
+    %% Radar needs traefik-private (ingress class + default TLS certificate).
     TP --> RADAR
 
     %% OpenTelemetry Operator needs cert-manager (webhook TLS) and
@@ -204,7 +202,7 @@ When using Traefik for HTTPS termination, services can be exposed either interna
 | Aspect | Internal HTTPS (private) | External HTTPS (public) |
 |--------|--------------------------|-------------------------|
 | **Ingress Class** | `traefik-private` | `traefik-pub` |
-| **TLS Secret** | `priv-wildcard-tls` (wildcard `*.priv.mlops-club.org`) | `cloudflare-origin-cert` (or ACME) |
+| **TLS Certificate** | `priv-wildcard-tls` (wildcard `*.priv.mlops-club.org`), served as the default by the `default` TLSStore in `traefik-private`; Ingresses name no secret | `mlops-wildcard-tls` (wildcard `*.mlops-club.org`), default TLSStore in `traefik-public`; Cloudflare terminates public TLS at its edge |
 | **External-DNS Annotation** | ✅ Required (points to Traefik's Tailscale IP) | ❌ Not needed |
 | **Traefik Exposure** | Via Tailscale LoadBalancer | Via Cloudflare Tunnel Ingress |
 | **DNS Management** | External-DNS creates A record | Cloudflare Tunnel creates DNS |

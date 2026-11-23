@@ -130,7 +130,7 @@ External-DNS (Cloudflare)  ──▶  immich.priv.mlops-club.org  }  DNS records
         │
         ▼
 Traefik Private (traefik-private namespace)
-  - TLS via priv-wildcard-tls certificate
+  - TLS via its default certificate (priv-wildcard-tls, TLSStore `default`)
   - Routes to immich-server:2283
         │
         ▼
@@ -269,7 +269,8 @@ Get your API key from the Immich web UI: **User Settings > API Keys > New API Ke
 ### Video playback stops after ~60 seconds
 
 Traefik's default response timeout is 60s. If video streaming cuts out, add a Traefik
-middleware to increase timeouts:
+middleware to increase timeouts. The label is required: traefik-private only reads Traefik
+objects labeled `traefik.mlops-club.org/instance: private`.
 
 ```yaml
 apiVersion: traefik.io/v1alpha1
@@ -277,6 +278,8 @@ kind: Middleware
 metadata:
   name: immich-timeout
   namespace: immich
+  labels:
+    traefik.mlops-club.org/instance: private
 spec:
   buffering:
     responseForwarding:
