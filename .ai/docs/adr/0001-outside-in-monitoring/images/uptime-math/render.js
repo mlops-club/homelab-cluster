@@ -1,7 +1,7 @@
 // Purpose: Renders the uptime formula cards (dashboards, ADR 0001) and the burn-rate card (ADR 0004)
 // Renders the cards to standalone SVG (all glyphs as paths, white card, dark ink) for Grafana text panels.
 // Usage: npm i mathjax-full@3 && node render.js <outDir>, then rsvg-convert -z 2 (docs) or -z 1.5 plus a
-//   16-colour quantize (dashboard-images, embedded in the dashboards, so keep them small)
+//   24-colour quantize to keep the PNGs small
 const fs = require('fs');
 const path = require('path');
 const { mathjax } = require('mathjax-full/js/mathjax.js');

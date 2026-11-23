@@ -76,8 +76,8 @@ depends on it for where its state lives.
 | Migrate | `terraform init -migrate-state` | State copied into Secret `terraform-state/tfstate-default-grafana-monitoring` |
 | Round trip | Move the local `terraform.tfstate` away, then `./tf plan` | "No changes": every resource read back from the Secret |
 | Lock | A second `./tf plan` while one is running | Fails with "Error acquiring the state lock" (Lease held) |
-| Size | `kubectl -n terraform-state get secret tfstate-default-grafana-monitoring -o jsonpath='{.data.tfstate}' \| wc -c` | 263,740 bytes of the 1 MB limit; most of it is the two dashboards' embedded formula images |
-| Daily use | Every change in [ADR 0001](../0001-outside-in-monitoring/decision.md) (20 applies) | Applied through the Secret with no lock errors |
+| Size | `kubectl -n terraform-state get secret tfstate-default-grafana-monitoring -o jsonpath='{.data.tfstate}' \| wc -c` | 26,412 bytes of the 1 MB limit (it reached 263,740 while the dashboards embedded formula images, since removed) |
+| Daily use | Every change in [ADR 0001](../0001-outside-in-monitoring/decision.md) (over 20 applies) | Applied through the Secret with no lock errors |
 
 ## Consequences
 
@@ -87,8 +87,9 @@ depends on it for where its state lives.
   namespace's RBAC to cluster admins and, later, one CI service account.
 - The state is as durable as the cluster's datastore: embedded etcd replicated across the three
   control-plane nodes. K3s takes local etcd snapshots by default; copying them off the nodes is not set up.
-- A Secret holds at most 1 MB (gzip-compressed state, then base64). The Grafana state is about a quarter
-  of that. Keep large embedded content out of Terraform-managed resources, or split the folder.
+- A Secret holds at most 1 MB (gzip-compressed state, then base64). The Grafana state is about 3 % of that.
+  Embedding images in dashboards briefly took it to a quarter; keep large embedded content out of
+  Terraform-managed resources, or split the folder.
 
 ## Follow-ups
 

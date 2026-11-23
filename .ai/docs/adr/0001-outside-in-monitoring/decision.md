@@ -5,7 +5,7 @@
 **Scope**: Every monitored service (Jellyfin, Navidrome, Immich, Audiobookshelf, Golden Rules Studio, Harbor, K2), the in-cluster probe, the uptime math, the internal and external dashboards, and billing. Where the Terraform state lives is [ADR 0003](../0003-terraform-state-in-cluster/decision.md); which alerts exist and how they reach Discord is [ADR 0004](../0004-alerts-and-routing/decision.md); when the phone may ring is [ADR 0005](../0005-on-call-schedule/decision.md). Cluster-wide traces, metrics and logs are a follow-up ([telemetry-plan.md](telemetry-plan.md))
 
 **Overview**: Visual first. Key terms come first, each with an example from this setup. Then the two
-    dashboards (marked-up screenshots), the uptime formulas (the same cards the dashboards show), how
+    dashboards (marked-up screenshots), the uptime formulas, how
     "no result" becomes "down" in PromQL, how a window that is not full yet is handled, and billing.
     No uptime target is shown or judged anywhere: the dashboards report uptime and downtime only
 
@@ -13,7 +13,7 @@
 
 **Exports**: The decision, the monitoring terms used across these ADRs, the readings-based uptime formula and its PromQL
 
-**Related**: [ADR 0004](../0004-alerts-and-routing/decision.md), [ADR 0005](../0005-on-call-schedule/decision.md), [telemetry-plan.md](telemetry-plan.md), `monitoring/checks/` (k6 scripts), `monitoring/reports/` (per-check reports on the internal dashboard), `monitoring/dashboard-images/` (formula cards and their renderer)
+**Related**: [ADR 0004](../0004-alerts-and-routing/decision.md), [ADR 0005](../0005-on-call-schedule/decision.md), [telemetry-plan.md](telemetry-plan.md), `monitoring/checks/` (k6 scripts), `monitoring/reports/` (per-check reports on the internal dashboard), `images/uptime-math/render.js` (renders the formula cards)
 
 ---
 
@@ -54,10 +54,10 @@ graph LR
 | **Location** | One probe running one check. A check on two probes has two locations, and each is billed | `golden-rules-studio-health` runs from Oregon and Ohio: 2 locations |
 | **Run** | One execution of a check at one location; it passes or fails and takes some time | A `harbor-health` run at 09:40 that got `200` in 0.21 s |
 | **Reading** | Every 5 minutes, each location's latest result: up if it passed, down if it failed **or if no result arrived**. A 20-minute run is read 4 times | K2 for one day: 1 location × 288 readings |
-| **Uptime** | Readings up ÷ readings expected, over the window | K2: 102 up of 102 expected = 100.00 % |
+| **Uptime** | Readings up ÷ readings expected, over the window | K2: 115 up of 115 expected = 100.00 % |
 | **Downtime** | Readings down turned back into time: × 5 minutes ÷ locations | 6 readings down at 1 location = 30 minutes |
 | **Window** | The period uptime is reported over | The last 14 days (Grafana's trial keeps 14 days of metrics) |
-| **Days measured** | How much of the window has readings so far; less than 14 until monitoring has run that long | 0.4 of 14 on the day the readings started |
+| **Days measured** | How much of the window has readings so far, counted from the check's first result | K2: 0.4 of 14 on its first day |
 | **Execution** | Grafana's billing unit: one run at one location | `audiobookshelf-browser` at 2 locations every 20 minutes = 4,464 browser executions a month |
 
 ## The two dashboards
@@ -71,17 +71,17 @@ link. At first glance each is an uptime page; everything deeper sits in collapse
 | Services | All seven | Golden Rules Studio, Harbor, K2 (Studio depends on the other two) |
 | Check toggle | Step-by-step report naming hosts, routes (Cloudflare, Traefik) and the code that defines the check | A plain-language description: what is checked, how often, what a red bar means |
 | Run log | Yes (its error lines can name hosts and IP addresses) | No |
-| Links to the repo | Yes | None. The formula cards are embedded in the dashboard, so nothing loads from GitHub |
-| Uptime math row | Table + cards + links to the code | Table + cards |
+| Links to the repo | Yes | None |
+| 14-day uptime | One table row under each service's bars; the toggle lists the exact query behind every number | Same |
 
 ![Internal dashboard: every service, stats on the left, one bar per run, toggles underneath](images/decision/internal-dashboard.jpg)
 
-![External dashboard with the uptime row expanded: table on top, formula cards stacked under it, no internals](images/decision/external-dashboard.jpg)
+![External dashboard: K2's 14-day row under its bars, and its toggle open with the description and the queries](images/decision/external-dashboard.jpg)
 
 ## How uptime is calculated
 
-The dashboards show these three cards, stacked under the live table. Each states the formula in words,
-then puts an example's numbers in.
+Each formula in words, then with an example's numbers. On the dashboards, each service's toggle states
+the same formulas in words, followed by the exact query that service runs.
 
 ![Uptime: readings up divided by readings expected](images/uptime-math/uptime-1-formula.png)
 
@@ -94,33 +94,37 @@ then puts an example's numbers in.
 Dividing by the results that *arrived* reads 100 % while the probe is down, because nothing failed:
 results just stopped. The fix is a denominator that comes from the schedule. The SM agent re-publishes
 each check's latest result about once a minute, so `probe_success` holds its value between runs and
-disappears while the probe or its network is down. Grafana SLO evaluates a query in 5-minute buckets and
-adds the buckets up over the window (`monitoring/terraform/slos.tf`):
+disappears while the probe or its network is down. Both numbers are computed straight from the raw
+results (`monitoring/terraform/slos.tf`, `status_dashboard.tf`):
 
 ```promql
-# readings up, per 5-minute bucket: each location's share of the bucket that reported "passing".
-#   max by (probe): one series per location (editing a check briefly overlaps old and new series)
-#   or vector(0):   an empty bucket counts 0 readings up instead of disappearing
-sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job="k2-health"}[5m]))) or vector(0))[$__rate_interval:5m])
-/
-# readings expected, per 5-minute bucket: one per location, whether or not anything arrived
-sum_over_time(vector(1)[$__rate_interval:5m])
+# Readings up over 14 days: every 5 minutes ([...:5m]), each location's share of those 5 minutes whose
+# latest result passed (avg_over_time), one series per location (max by (probe): editing a check briefly
+# overlaps old and new series); a 5-minute period with no result adds 0 (or vector(0))
+sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job="k2-health"}[5m]))) or vector(0))[14d:5m])
+
+# Readings expected over 14 days: locations × 5-minute periods since the check's first result in the window,
+# at most 4,032 (14 days). It comes from the clock, not from what arrived
+1 * clamp_max(ceil((time() - min(min_over_time(timestamp(probe_success{job="k2-health"})[14d:5m]))) / 300), 4032)
 ```
 
-Two simpler forms were tried and rejected: counting samples overcounts (one run is published many times),
-and `increase()` of the run counter loses runs that straddle a bucket edge.
-
-Grafana SLO is used only as the engine that turns this query into 5-minute recording rules
-(`grafana_slo_success_rate_5m`, `grafana_slo_total_rate_5m`); the dashboard table adds those up over 14
-days. Grafana SLO requires an objective, so each one is set to 95 %. The objective drives only the
-burn-rate alerts ([ADR 0004](../0004-alerts-and-routing/decision.md)); no dashboard shows it.
+Uptime, readings down, downtime and days measured are arithmetic on these two. The 24 h stat uses the same
+two queries over 24 h (at most 288 periods). Two simpler forms were tried and rejected: counting samples
+overcounts (one run is published many times), and `increase()` of the run counter loses runs that straddle
+a bucket edge.
 
 ### A window that isn't full yet
 
-The recording rules exist only from the moment each service's SLO was created, so "readings expected"
-counts the measured days only, never the empty days before monitoring began. The **Days measured**
-column says how much of the 14 days that is. The 24 h uptime stat on each row uses the same readings and
-starts at the check's first-ever result, so a new check doesn't start near 0 %.
+Readings expected start at the check's first result, so a check that is two days old is measured over two
+days, not charged for twelve empty ones. The **Days measured** column says how much of the 14 days that is.
+Silence *after* the first result counts as down: Jellyfin and Navidrome show about 70 % over their first
+2.5 days because the laptop probe slept at night before it moved into the cluster.
+
+### Grafana SLO is only for alerts
+
+Each service also has a Grafana SLO with the same readings query, because Grafana generates burn-rate alert
+rules from it ([ADR 0004](../0004-alerts-and-routing/decision.md)). Grafana SLO requires an objective, so
+each is set to 95 %. No dashboard shows the objective or reads the SLO's recording rules.
 
 ## What Grafana bills for
 
@@ -165,7 +169,7 @@ silent" alert fires ([ADR 0004](../0004-alerts-and-routing/decision.md)).
 - Missing data is never healthy: grey "no result" bars, 24 h uptime and 14-day uptime all count silence as down.
 - With 20-minute checks, an outage shorter than 20 minutes can fall between runs and go unseen; a failed run counts as about 20 minutes down.
 - The external dashboard is safe to share with Studio users; the internal one names hosts and links to code.
-- The formula cards are embedded in the dashboard JSON (about 120 KB per dashboard), which also lands in the Terraform state ([ADR 0003](../0003-terraform-state-in-cluster/decision.md)).
+- Uptime includes the probe's own outages: silence counts as down even when the service was fine (the 70 % above).
 - Observed: from the in-cluster probe, Navidrome and Jellyfin login runs take longer than they did from the laptop (Navidrome ≈ 0.6 s → 2–2.5 s). Worth a look with the traces from [telemetry-plan.md](telemetry-plan.md).
 
 ## Follow-ups

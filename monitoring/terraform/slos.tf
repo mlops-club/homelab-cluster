@@ -13,7 +13,8 @@
 #   A probe or network outage therefore lowers uptime like a real outage. Counting samples would overcount (one run
 #   = many samples), increase() of the run counter loses runs at bucket edges, and ratios over received results
 #   (probe_all_success_sum / _count) read 100 % while nothing is checked.
-#   Math walkthrough: .ai/docs/adr/0001-outside-in-monitoring/decision.md
+#   The dashboards compute uptime from the raw results with the same readings (status_dashboard.tf); these SLO
+#   resources exist for their burn-rate alerts. Math walkthrough: .ai/docs/adr/0001-outside-in-monitoring/decision.md
 
 locals {
   # job = check job name; locations = probes running it; interval_s = check frequency in seconds
@@ -31,6 +32,9 @@ locals {
   # Readings (see header), shared with the dashboards' uptime table and 24 h uptime stats
   readings_up       = "sum_over_time((sum(max by (probe) (avg_over_time(probe_success{job=\"%s\"}[5m]))) or vector(0))[%s:5m])"
   readings_expected = "sum_over_time(vector(%d)[%s:5m])"
+  # Readings expected over a range of N five-minute periods, counted from the check's first result in the last 14 days
+  # (a new check isn't charged for the days before it existed). %d locations, %s job, %d = N (288 = 24 h, 4032 = 14 d)
+  readings_expected_since_first = "%d * clamp_max(ceil((time() - min(min_over_time(timestamp(probe_success{job=\"%s\"})[14d:5m]))) / 300), %d)"
   slo_query = { for k, s in local.slo_services : k => format("%s / %s",
     format(local.readings_up, s.job, "$__rate_interval"), format(local.readings_expected, s.locations, "$__rate_interval")
   ) }

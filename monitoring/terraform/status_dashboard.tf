@@ -4,12 +4,12 @@
 #   plus the two services it depends on, Harbor and K2, written for someone who only cares whether it is up: no
 #   links to the repo, no hostnames, no infrastructure names, no run log (its error lines can carry hostnames).
 #   Read-only, no variables (public dashboards don't support them)
-# Overview: A collapsed "How uptime is calculated" row at the top: a table of each service's readings, uptime,
-#   downtime and how much of the 14-day window is measured so far, then three formula cards stacked under it.
-#   No targets or verdicts are shown. Below it, one row per service. Left: current state (UP / DOWN / NO DATA) and
-#   24 h uptime. Right: one bar per check run, height = how long the run took; green passed, red failed, grey = no
-#   result arrived. Missing data never reads as healthy. Under each service, a collapsed row explains the check, then
-#   compares the selected period with the 24 h before it (status_selection.tf); internally it also has the run log
+# Overview: One block per service. Left: current state (UP / DOWN / NO DATA) and 24 h uptime. Right: one bar per
+#   check run, height = how long the run took; green passed, red failed, grey = no result arrived. Under the bars,
+#   one table row: readings, uptime, downtime and days measured over the last 14 days (no targets or verdicts).
+#   Missing data never reads as healthy. Under that, a collapsed row explains the check, lists the exact queries
+#   behind each 14-day number, and compares the selected period with the 24 h before it (status_selection.tf);
+#   internally it also has the run log
 
 locals {
   check_every = "20m" # every check runs every 20 minutes (checks_*.tf); one bar per run
@@ -49,95 +49,60 @@ locals {
     "1"  = { text = "UP", color = "green", index = 2 }
   } }]
 
-  # ---- "How uptime is calculated" row (top of each dashboard) ----
-  math_row_h = 1
-  # Formula cards are embedded in the dashboard (no outside image host, so the external dashboard links nowhere).
-  # Rendered by ../dashboard-images/render.js; 1.5x, 16-colour PNGs. One text panel per card: Grafana truncates a
-  # text panel's content at about 100k characters. h = grid rows for the card shown 760 px wide
-  math_cards = [for c in [{ n = "uptime-1-formula", h = 15 }, { n = "uptime-2-downtime", h = 12 }, { n = "uptime-3-missing", h = 12 }] :
-  merge(c, { img = "<img src=\"data:image/png;base64,${filebase64("${path.module}/../dashboard-images/${c.n}.png")}\" width=\"760\">" })]
-  math_text = { for d, dash in local.status_dashboards : d => join("\n\n", concat([
-    "**Uptime** is the share of readings that were up over the last ${trimsuffix(local.slo_window, "d")} days. Every 5 minutes, each check location gives one reading: **up** if its latest check result passed, **down** if it failed or if no result arrived, so silence never looks healthy. Monitoring began recently, so until 14 days are recorded, the numbers cover only the days measured (last column of the table). The cards below walk through each formula: first in words, then with an example's numbers.",
-    ], dash.internal ? ["Code: readings and the 14-day window in [slos.tf](${local.repo_url}/monitoring/terraform/slos.tf), this table and the cards in [status_dashboard.tf](${local.repo_url}/monitoring/terraform/status_dashboard.tf). Background: [ADR 0001](${local.repo_url}/.ai/docs/adr/0001-outside-in-monitoring/decision.md)."] : []
-  )) }
-  math_table_h = { for d, dash in local.status_dashboards : d => length([for s in local.status_services : s if s.slo != null && contains(dash.jobs, s.job)]) + 2 }
-  math_text_h  = { for d, dash in local.status_dashboards : d => dash.internal ? 3 : 2 }
-  # One query per table column, one series per service (label `service`), from Grafana SLO's own 5-minute
-  # recording rules: success = readings up per bucket, total = readings expected per bucket (slos.tf). The
-  # recording rules exist only since each service's SLO was created, so these count the measured days only
-  window_sub = "[${local.slo_window}:5m]"
-  readings_col = {
-    expected = "sum_over_time((grafana_slo_total_rate_5m{grafana_slo_uuid=\"UUID\"} < +Inf)${local.window_sub})"
-    up       = "sum_over_time((grafana_slo_success_rate_5m{grafana_slo_uuid=\"UUID\"} < +Inf)${local.window_sub})"
-  }
+  # ---- 14-day uptime row under each service's bars, and the queries behind it ----
+  # Computed from the raw check results (probe_success) with the readings of slos.tf. Readings expected start at the
+  # check's first result in the window, so a new check is measured only over the days it has existed
+  window_days = trimsuffix(local.slo_window, "d")
   uptime_cols = {
-    EXPECTED = "(${local.readings_col.expected})"
-    UP       = "(${local.readings_col.up})"
-    DOWN     = "(${local.readings_col.expected} - ${local.readings_col.up})"
-    UPTIME   = "(${local.readings_col.up} / ${local.readings_col.expected})"
-    DOWNTIME = "((${local.readings_col.expected} - ${local.readings_col.up}) * 300 / LOCS)" # seconds
-    DAYS     = "(${local.readings_col.expected} / (LOCS * 288))"                            # 288 readings per day
+    EXPECTED = "EXP"
+    UP       = "UPQ"
+    DOWN     = "EXP - UPQ"
+    UPTIME   = "UPQ / EXP"
+    DOWNTIME = "(EXP - UPQ) * 300 / LOCS" # seconds
+    DAYS     = "EXP / (LOCS * 288)"       # 288 readings per day
   }
-  uptime_targets = { for d, dash in local.status_dashboards : d => {
-    for col, tmpl in local.uptime_cols : col => join(" or ", [for s in local.status_services :
-      "label_replace(sum(${replace(replace(tmpl, "UUID", grafana_slo.availability[s.slo].id), "LOCS", s.locs)}), \"service\", \"${s.name}\", \"\", \"\")"
-    if s.slo != null && contains(dash.jobs, s.job)])
-  } }
   uptime_col_order = ["EXPECTED", "UP", "DOWN", "UPTIME", "DOWNTIME", "DAYS"]
   uptime_col_names = {
     EXPECTED = "Readings expected", UP = "Readings up", DOWN = "Readings down",
     UPTIME   = "Uptime", DOWNTIME = "Downtime", DAYS = "Days measured"
   }
-  math_panels = { for d, dash in local.status_dashboards : d => [
-    {
-      id      = 901, type = "row", title = "How uptime is calculated (click to expand)", collapsed = true
-      gridPos = { x = 0, y = 0, w = 24, h = 1 }
-      panels = concat([
-        {
-          id      = 903, type = "table", datasource = local.prom
-          title   = "Last ${trimsuffix(local.slo_window, "d")} days, or since monitoring began. One reading = one location's latest result, every 5 minutes; no result counts as down"
-          gridPos = { x = 0, y = 1, w = 24, h = local.math_table_h[d] }
-          targets = [for col in local.uptime_col_order :
-          { refId = col, instant = true, format = "table", expr = local.uptime_targets[d][col] }]
-          transformations = [
-            { id = "merge", options = {} },
-            { id = "organize", options = {
-              excludeByName = { Time = true }
-              indexByName   = merge({ service = 0 }, { for i, c in local.uptime_col_order : "Value #${c}" => i + 1 })
-              renameByName  = merge({ service = "Service" }, { for c in local.uptime_col_order : "Value #${c}" => local.uptime_col_names[c] })
-            } },
-          ]
-          fieldConfig = {
-            defaults = { decimals = 0 }
-            overrides = [
-              { matcher = { id = "byName", options = "Uptime" }, properties = [{ id = "unit", value = "percentunit" }, { id = "decimals", value = 2 }] },
-              { matcher = { id = "byName", options = "Downtime" }, properties = [{ id = "unit", value = "dtdurations" }] },
-              { matcher = { id = "byName", options = "Days measured" }, properties = [
-              { id = "decimals", value = 1 }, { id = "unit", value = "suffix: of ${trimsuffix(local.slo_window, "d")}" }] },
-            ]
-          }
-        },
-        {
-          id      = 902, type = "text", title = "", transparent = true
-          gridPos = { x = 0, y = 1 + local.math_table_h[d], w = 24, h = local.math_text_h[d] }
-          options = { mode = "markdown", content = local.math_text[d] }
-        },
-        ], [for i, c in local.math_cards : {
-          id      = 904 + i, type = "text", title = "", transparent = true
-          gridPos = { x = 0, y = 1 + local.math_table_h[d] + local.math_text_h[d] + sum(concat([0], [for j, o in local.math_cards : o.h if j < i])), w = 24, h = c.h }
-          options = { mode = "markdown", content = c.img }
-      }])
-    },
-  ] }
+  uptime_col_words = {
+    EXPECTED = "locations × 5-minute periods since the check's first result (at most 14 days)"
+    UP       = "readings whose latest result passed (no result = not up)"
+    DOWN     = "Readings expected − Readings up"
+    UPTIME   = "Readings up ÷ Readings expected"
+    DOWNTIME = "Readings down × 5 minutes ÷ locations (in seconds)"
+    DAYS     = "Readings expected ÷ (locations × 288 readings a day)"
+  }
+  uptime_expr = { for s in local.status_services : s.job => {
+    for col, tmpl in local.uptime_cols : col => replace(replace(replace(tmpl,
+      "EXP", "(${format(local.readings_expected_since_first, s.locs, s.job, 4032)})"),
+      "UPQ", "(${format(local.readings_up, s.job, local.slo_window)})"),
+    "LOCS", s.locs)
+  } if s.slo != null }
+  u14_h     = 3  # the one-row table under the bars
+  queries_h = 21 # the queries text panel in the toggle
+  queries_text = { for s in local.status_services : s.job => join("\n\n", concat([
+    "**${s.name}: where the 14-day numbers above come from.** Every 5 minutes, each check location gives one reading: **up** if its latest result passed, **down** if it failed or if no result arrived. This check runs from ${s.locs} location${s.locs > 1 ? "s" : ""}. Until monitoring has run for ${local.window_days} days, the numbers cover only the days measured.",
+    ], flatten([for c in local.uptime_col_order : [
+      "**${local.uptime_col_names[c]}** = ${local.uptime_col_words[c]}",
+      "```promql\n${local.uptime_expr[s.job][c]}\n```",
+    ]]), [
+    "**How the two building blocks work.** Readings up: every 5 minutes (`[...:5m]`), each location's share of those 5 minutes its latest result was passing (`avg_over_time`, one series per location with `max by (probe)`), added up over the window; a 5-minute period with no result adds 0 (`or vector(0)`). Readings expected: the number of 5-minute periods since the check's first result (`timestamp`), at most 14 days' worth, times the number of locations. It comes from the schedule, not from what arrived, which is what makes a missing result count as down.",
+  ])) if s.slo != null }
 
   # ---- one block of rows per service ----
   dash_services = { for d, dash in local.status_dashboards : d => [for s in local.status_services : s if contains(dash.jobs, s.job)] }
-  report_h      = { for d, dash in local.status_dashboards : d => { for s in local.status_services : s.job => dash.internal ? s.report_h : 5 } }
-  service_panels = { for d, services in local.dash_services : d => flatten([for i, s in services : [
-    { id = i * 10 + 5, type = "row", title = s.name, collapsed = false, panels = [], gridPos = { x = 0, y = local.math_row_h + i * (local.row_h + 2), w = 24, h = 1 } },
+  t14           = { for s in local.status_services : s.job => s.slo != null ? local.u14_h : 0 }
+  tq            = { for s in local.status_services : s.job => s.slo != null ? local.queries_h : 0 }
+  block_h       = { for d, services in local.dash_services : d => [for s in services : 1 + local.row_h + local.t14[s.job] + 1] }
+  block_y       = { for d, hs in local.block_h : d => [for i, h in hs : sum(concat([0], slice(hs, 0, i)))] }
+  report_h      = { for d, dash in local.status_dashboards : d => { for s in local.status_services : s.job => dash.internal ? s.report_h : 3 } }
+  service_panels = { for d, services in local.dash_services : d => flatten([for i, s in services : concat([
+    { id = i * 20 + 5, type = "row", title = s.name, collapsed = false, panels = [], gridPos = { x = 0, y = local.block_y[d][i], w = 24, h = 1 } },
     {
-      id       = i * 10 + 1, type = "stat", title = "${s.name}: now", datasource = local.prom
-      gridPos  = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 1, w = 5, h = 3 }
+      id       = i * 20 + 1, type = "stat", title = "${s.name}: now", datasource = local.prom
+      gridPos  = { x = 0, y = local.block_y[d][i] + 1, w = 5, h = 3 }
       timeFrom = "24h", hideTimeOverride = true # always "now", whatever is selected
       targets = [{ refId = "A", instant = true,
         # latest result within the last 25 min (one 20-minute run plus slack); nothing at all means no result arrived
@@ -146,20 +111,20 @@ locals {
       fieldConfig = { defaults = { mappings = local.state_map } }
     },
     {
-      id       = i * 10 + 2, type = "stat", title = "${s.name}: uptime, 24 h (no data = down)", datasource = local.prom
-      gridPos  = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 4, w = 5, h = 3 }
+      id       = i * 20 + 2, type = "stat", title = "${s.name}: uptime, 24 h (no data = down)", datasource = local.prom
+      gridPos  = { x = 0, y = local.block_y[d][i] + 4, w = 5, h = 3 }
       timeFrom = "24h", hideTimeOverride = true
       targets = [{ refId = "A", instant = true,
-        # same readings as the uptime table (slos.tf): 5-minute readings with no result count as down; readings from before
-        # the check's first-ever result are left out, so a new check doesn't start near 0 %
-      expr = "${format(local.readings_up, s.job, "24h")} / sum_over_time((vector(${s.locs}) and on() (count(count_over_time(probe_success{job=\"${s.job}\"}[30d])) > 0))[24h:5m])" }]
+        # same readings as the 14-day row: 5-minute readings with no result count as down; readings from before the
+        # check's first result are left out, so a new check doesn't start near 0 %
+      expr = "${format(local.readings_up, s.job, "24h")} / (${format(local.readings_expected_since_first, s.locs, s.job, 288)})" }]
       options = { colorMode = "value", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
       fieldConfig = { defaults = { unit = "percentunit", decimals = 2, noValue = "no data", thresholds = { mode = "absolute",
       steps = [{ color = "red", value = null }, { color = "orange", value = 0.95 }, { color = "green", value = 0.99 }] } } }
     },
     {
-      id       = i * 10 + 3, type = "timeseries", title = "${s.name}: time per check run", datasource = local.prom
-      gridPos  = { x = 5, y = local.math_row_h + i * (local.row_h + 2) + 1, w = 19, h = local.row_h }
+      id       = i * 20 + 3, type = "timeseries", title = "${s.name}: time per check run", datasource = local.prom
+      gridPos  = { x = 5, y = local.block_y[d][i] + 1, w = 19, h = local.row_h }
       interval = local.check_every # one bar per check run
       targets = [
         { refId = "A", legendFormat = "Passed",
@@ -184,18 +149,45 @@ locals {
         { matcher = { id = "byName", options = o[0] }, properties = [{ id = "color", value = { mode = "fixed", fixedColor = o[1] } }] }]
       }
     },
+    ], [for t in [{
+      id      = i * 20 + 9, type = "table", datasource = local.prom
+      title   = "${s.name}: last ${local.window_days} days, or since monitoring began (no result = down; queries in the toggle below)"
+      gridPos = { x = 0, y = local.block_y[d][i] + 1 + local.row_h, w = 24, h = local.u14_h }
+      targets = [for col in local.uptime_col_order : { refId = col, instant = true, format = "table", expr = try(local.uptime_expr[s.job][col], "") }]
+      transformations = [
+        { id = "merge", options = {} },
+        { id = "organize", options = {
+          excludeByName = { Time = true }
+          indexByName   = { for i2, c in local.uptime_col_order : "Value #${c}" => i2 }
+          renameByName  = { for c in local.uptime_col_order : "Value #${c}" => local.uptime_col_names[c] }
+        } },
+      ]
+      fieldConfig = {
+        defaults = { decimals = 0 }
+        overrides = [
+          { matcher = { id = "byName", options = "Uptime" }, properties = [{ id = "unit", value = "percentunit" }, { id = "decimals", value = 2 }] },
+          { matcher = { id = "byName", options = "Downtime" }, properties = [{ id = "unit", value = "dtdurations" }] },
+          { matcher = { id = "byName", options = "Days measured" }, properties = [
+          { id = "decimals", value = 1 }, { id = "unit", value = "suffix: of ${local.window_days}" }] },
+        ]
+      }
+    }] : t if s.slo != null], [
     {
-      id      = i * 10 + 6, type = "row", title = "${s.name}: how this check works (click to expand)", collapsed = true
-      gridPos = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 1 + local.row_h, w = 24, h = 1 }
+      id      = i * 20 + 6, type = "row", title = s.slo != null ? "${s.name}: how this check and its uptime work (click to expand)" : "${s.name}: how this check works (click to expand)", collapsed = true
+      gridPos = { x = 0, y = local.block_y[d][i] + 1 + local.row_h + local.t14[s.job], w = 24, h = 1 }
       panels = concat([{
-        id      = i * 10 + 4, type = "text", title = "", transparent = true
-        gridPos = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 2 + local.row_h, w = 24, h = local.report_h[d][s.job] }
+        id      = i * 20 + 4, type = "text", title = "", transparent = true
+        gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.t14[s.job], w = 24, h = local.report_h[d][s.job] }
         # internal: the step-by-step report (hosts, routes, code links); external: the plain-language `about`
         options = { mode = "markdown", content = local.status_dashboards[d].internal ? templatefile("${path.module}/../reports/${s.job}.md", { img = local.img_url, repo = local.repo_url }) : s.about }
-        }, {
-        id      = i * 10 + 8, type = "table", datasource = local.prom
+        }], [for q in [{
+          id      = i * 20 + 11, type = "text", title = "", transparent = true
+          gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.t14[s.job] + local.report_h[d][s.job], w = 24, h = local.queries_h }
+          options = { mode = "markdown", content = lookup(local.queries_text, s.job, "") }
+        }] : q if s.slo != null], [{
+        id      = i * 20 + 8, type = "table", datasource = local.prom
         title   = "Selected period vs the 24 h up to it (average seconds). Drag across the bars to pick a period (one bar = one run)"
-        gridPos = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 2 + local.report_h[d][s.job] + local.row_h, w = 24, h = 7 }
+        gridPos = { x = 0, y = local.block_y[d][i] + 2 + local.row_h + local.t14[s.job] + local.report_h[d][s.job] + local.tq[s.job], w = 24, h = 7 }
         targets = [
           { refId = "A", instant = true, format = "table", expr = local.compare_expr[s.job].selected },
           { refId = "B", instant = true, format = "table", expr = local.compare_expr[s.job].baseline },
@@ -220,13 +212,13 @@ locals {
           ] }]
         }
         }], [for p in [{
-          id      = i * 10 + 7, type = "logs", title = "${s.name}: run log for the selected period (newest first)", datasource = local.logs
-          gridPos = { x = 0, y = local.math_row_h + i * (local.row_h + 2) + 9 + local.report_h[d][s.job] + local.row_h, w = 24, h = 12 }
+          id      = i * 20 + 7, type = "logs", title = "${s.name}: run log for the selected period (newest first)", datasource = local.logs
+          gridPos = { x = 0, y = local.block_y[d][i] + 9 + local.row_h + local.t14[s.job] + local.report_h[d][s.job] + local.tq[s.job], w = 24, h = 12 }
           targets = [{ refId = "A", datasource = local.logs, queryType = "range", maxLines = 1000, expr = format(local.run_log_expr, s.job) }]
           options = { showTime = true, sortOrder = "Descending", wrapLogMessage = true, enableLogDetails = false, dedupStrategy = "none", showLabels = false }
       }] : p if local.status_dashboards[d].internal]) # run log is internal only: error lines can name hosts and addresses
     },
-  ]]) }
+  ])]) }
 }
 
 resource "grafana_dashboard" "status" {
@@ -237,7 +229,7 @@ resource "grafana_dashboard" "status" {
     refresh  = "1m"
     time     = { from = "now-24h", to = "now" }
     timezone = "browser"
-    panels   = concat(local.math_panels[each.key], local.service_panels[each.key])
+    panels   = local.service_panels[each.key]
   })
 }
 
