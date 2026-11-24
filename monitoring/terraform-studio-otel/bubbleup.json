@@ -14,6 +14,28 @@
  "templating": {
   "list": [
    {
+    "name": "env",
+    "label": "Environment",
+    "type": "custom",
+    "query": "Production : production,Isolated POC : otel-poc",
+    "options": [
+     {
+      "text": "Production",
+      "value": "production",
+      "selected": true
+     },
+     {
+      "text": "Isolated POC",
+      "value": "otel-poc",
+      "selected": false
+     }
+    ],
+    "current": {
+     "text": "Production",
+     "value": "production"
+    }
+   },
+   {
     "name": "spans",
     "label": "Spans",
     "type": "custom",
@@ -252,7 +274,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "range",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | histogram_over_time(${y})"
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | histogram_over_time(${y})"
     }
    ],
    "fieldConfig": {
@@ -312,7 +334,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time()"
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time()"
     }
    ],
    "options": {
@@ -356,7 +378,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | count_over_time()"
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | count_over_time()"
     }
    ],
    "options": {
@@ -401,7 +423,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time()",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time()",
      "hide": true
     },
     {
@@ -412,7 +434,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | count_over_time()",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | count_over_time()",
      "hide": true
     },
     {
@@ -489,7 +511,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "range",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | count_over_time() by (${by})"
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | count_over_time() by (${by})"
     }
    ],
    "fieldConfig": {
@@ -546,7 +568,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "range",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | quantile_over_time(${y}, .9) by (${by})"
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | quantile_over_time(${y}, .9) by (${by})"
     }
    ],
    "transformations": [
@@ -622,7 +644,7 @@
      "tableType": "spans",
      "limit": 1000,
      "spss": 100,
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | select(${y}, span.ce.page, span.ce.catalog, span.user.id, span.http.route, span.ce.course.key)"
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | select(${y}, span.ce.page, span.ce.catalog, span.user.id, span.http.route, span.ce.course.key)"
     }
    ],
    "transformations": [
@@ -777,7 +799,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)",
      "hide": true
     },
     {
@@ -876,7 +898,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.http.route, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.http.route, resource.service.name)",
      "hide": true
     },
     {
@@ -887,7 +909,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -929,7 +951,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.http.route, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.http.route, resource.service.name)",
      "hide": true
     },
     {
@@ -940,7 +962,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -1168,7 +1190,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
      "hide": true
     },
     {
@@ -1179,7 +1201,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -1221,7 +1243,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
      "hide": true
     },
     {
@@ -1232,7 +1254,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -1460,7 +1482,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
      "hide": true
     },
     {
@@ -1471,7 +1493,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -1513,7 +1535,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
      "hide": true
     },
     {
@@ -1524,7 +1546,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -1752,7 +1774,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.course.key, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.course.key, resource.service.name)",
      "hide": true
     },
     {
@@ -1763,7 +1785,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -1805,7 +1827,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.course.key, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.course.key, resource.service.name)",
      "hide": true
     },
     {
@@ -1816,7 +1838,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2044,7 +2066,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.rule.id, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.rule.id, resource.service.name)",
      "hide": true
     },
     {
@@ -2055,7 +2077,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2097,7 +2119,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.rule.id, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.rule.id, resource.service.name)",
      "hide": true
     },
     {
@@ -2108,7 +2130,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2336,7 +2358,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.snapshot.cache, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.snapshot.cache, resource.service.name)",
      "hide": true
     },
     {
@@ -2347,7 +2369,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2389,7 +2411,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.snapshot.cache, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.snapshot.cache, resource.service.name)",
      "hide": true
     },
     {
@@ -2400,7 +2422,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2628,7 +2650,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.http.response.status_code, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.http.response.status_code, resource.service.name)",
      "hide": true
     },
     {
@@ -2639,7 +2661,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2681,7 +2703,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.http.response.status_code, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.http.response.status_code, resource.service.name)",
      "hide": true
     },
     {
@@ -2692,7 +2714,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2920,7 +2942,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
      "hide": true
     },
     {
@@ -2931,7 +2953,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -2973,7 +2995,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
      "hide": true
     },
     {
@@ -2984,7 +3006,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -3212,7 +3234,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.http.response.body.size) by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.http.response.body.size) by (resource.service.name)",
      "hide": true
     },
     {
@@ -3223,7 +3245,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -3265,7 +3287,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.http.response.body.size) by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.http.response.body.size) by (resource.service.name)",
      "hide": true
     },
     {
@@ -3276,7 +3298,7 @@
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
      "hide": true
     },
     {
@@ -3527,7 +3549,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)",
        "hide": true
       },
       {
@@ -3626,7 +3648,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
        "hide": true
       },
       {
@@ -3637,7 +3659,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -3679,7 +3701,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
        "hide": true
       },
       {
@@ -3690,7 +3712,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -3918,7 +3940,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
        "hide": true
       },
       {
@@ -3929,7 +3951,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -3971,7 +3993,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
        "hide": true
       },
       {
@@ -3982,7 +4004,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -4210,7 +4232,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page_view.kind, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page_view.kind, resource.service.name)",
        "hide": true
       },
       {
@@ -4221,7 +4243,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -4263,7 +4285,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page_view.kind, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page_view.kind, resource.service.name)",
        "hide": true
       },
       {
@@ -4274,7 +4296,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -4502,7 +4524,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.url.template, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.url.template, resource.service.name)",
        "hide": true
       },
       {
@@ -4513,7 +4535,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -4555,7 +4577,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.url.template, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.url.template, resource.service.name)",
        "hide": true
       },
       {
@@ -4566,7 +4588,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -4794,7 +4816,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
        "hide": true
       },
       {
@@ -4805,7 +4827,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -4847,7 +4869,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
        "hide": true
       },
       {
@@ -4858,7 +4880,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -5086,7 +5108,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.browser.name, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.browser.name, resource.service.name)",
        "hide": true
       },
       {
@@ -5097,7 +5119,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -5139,7 +5161,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.browser.name, resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.browser.name, resource.service.name)",
        "hide": true
       },
       {
@@ -5150,7 +5172,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -5378,7 +5400,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.ce.stats.api.calls) by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.ce.stats.api.calls) by (resource.service.name)",
        "hide": true
       },
       {
@@ -5389,7 +5411,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -5431,7 +5453,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.ce.stats.api.calls) by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.ce.stats.api.calls) by (resource.service.name)",
        "hide": true
       },
       {
@@ -5442,7 +5464,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -5681,7 +5703,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.ce.page.dom_nodes) by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.ce.page.dom_nodes) by (resource.service.name)",
        "hide": true
       },
       {
@@ -5692,7 +5714,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {
@@ -5734,7 +5756,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.ce.page.dom_nodes) by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.ce.page.dom_nodes) by (resource.service.name)",
        "hide": true
       },
       {
@@ -5745,7 +5767,7 @@
        },
        "queryType": "traceql",
        "metricsQueryType": "instant",
-       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "query": "{${spans} && resource.deployment.environment.name=\"${env}\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
        "hide": true
       },
       {

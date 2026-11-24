@@ -14,7 +14,9 @@ import json
 
 TEMPO = {"type": "tempo", "uid": "grafanacloud-traces"}
 EXPR = {"type": "__expr__", "uid": "__expr__"}
-ENV = 'resource.deployment.environment.name="otel-poc"'
+# which Studio: production (real reviewers) or the isolated POC instance (scripted tours)
+ENVS = [("Production", "production"), ("Isolated POC", "otel-poc")]
+ENV = 'resource.deployment.environment.name="${env}"'
 
 # label : TraceQL conditions (no commas: Grafana custom variables split on them)
 SPANS = [
@@ -317,6 +319,7 @@ dash = {
     "timezone": "browser",
     "tags": ["studio", "otel", "poc"],
     "templating": {"list": [
+        custom("env", "Environment", ENVS, "production"),
         custom("spans", "Spans", SPANS, SPANS[0][1]),
         custom("y", "Y-axis", Y, "duration"),
         textbox("lo", "From", "1s", "Lower edge of the band on the y-axis (duration: 500ms, 2s; others: a number)"),

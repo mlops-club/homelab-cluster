@@ -11,8 +11,9 @@
 
 locals {
   tempo   = { type = "tempo", uid = "grafanacloud-traces" }
-  web     = "resource.service.name=\"golden-dataset-studio-web\" && resource.deployment.environment.name=\"otel-poc\""
-  backend = "resource.service.name=\"golden-dataset-studio\" && resource.deployment.environment.name=\"otel-poc\""
+  # $${env}: the dashboard's Environment variable (production, or otel-poc for the isolated instance)
+  web     = "resource.service.name=\"golden-dataset-studio-web\" && resource.deployment.environment.name=\"$${env}\""
+  backend = "resource.service.name=\"golden-dataset-studio\" && resource.deployment.environment.name=\"$${env}\""
   img_ref = "feat/studio-otel-poc"
   img_url = "https://raw.githubusercontent.com/mlops-club/homelab-cluster/${local.img_ref}/.ai/docs/adr/0001-outside-in-monitoring/images/studio-otel/pages"
 
@@ -130,7 +131,7 @@ locals {
 
   overview = [
     { id = 1, type = "text", title = "", transparent = true, gridPos = { x = 0, y = 0, w = 24, h = 2 },
-    options = { mode = "markdown", content = "**CTDL Golden Rules Studio, OpenTelemetry POC** (isolated instance, `deployment.environment.name = otel-poc`). All panels are TraceQL / TraceQL metrics on Tempo: no metrics store. Web vitals of hard loads are grouped by the page the browser landed on (`resource.entry_page.hash`); INP and CLS by the page shown when reported (`span.ce.page`). Grafana Cloud limits TraceQL metrics to 24 h." } },
+    options = { mode = "markdown", content = "**CTDL Golden Rules Studio, OpenTelemetry** (choose **Environment**: production, or the isolated POC instance). All panels are TraceQL / TraceQL metrics on Tempo: no metrics store. Web vitals of hard loads are grouped by the page the browser landed on (`resource.entry_page.hash`); INP and CLS by the page shown when reported (`span.ce.page`). Grafana Cloud limits TraceQL metrics to 24 h." } },
     {
       id      = 2, type = "timeseries", title = "Page views by page", datasource = local.tempo
       gridPos = { x = 0, y = 2, w = 12, h = 7 }
@@ -164,6 +165,11 @@ resource "grafana_dashboard" "studio_otel" {
     timezone = "browser"
     refresh  = ""
     tags     = ["studio", "otel", "poc"]
+    templating = { list = [{
+      name = "env", label = "Environment", type = "custom", query = "Production : production,Isolated POC : otel-poc",
+      current = { text = "Production", value = "production" },
+      options = [{ text = "Production", value = "production", selected = true }, { text = "Isolated POC", value = "otel-poc", selected = false }]
+    }] }
     panels   = concat(local.overview, local.page_panels)
   })
 }
