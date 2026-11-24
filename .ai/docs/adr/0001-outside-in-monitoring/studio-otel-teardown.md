@@ -3,7 +3,7 @@
 **Purpose**: Remove everything the Studio OpenTelemetry POC created, with exact commands, and prove production
 (`golden-rules-studio`) was not touched
 
-**Scope**: Cluster (namespace `golden-rules-studio-otel`), Harbor (one image tag), Grafana Cloud (folder, two
+**Scope**: Cluster (namespace `golden-rules-studio-otel`), Harbor (one image tag), Grafana Cloud (folder, three
 dashboards, one access policy + token), the laptop (credentials file, Podman login, containers, scratch data),
 and the three branches
 
@@ -20,7 +20,7 @@ and the three branches
 | Cluster | PV `pvc-2adad8b0-…` (local-path, reclaim **Delete**: removed with the PVC) | the PVC |
 | Cluster | Secrets `priv-wildcard-tls`, `mlops-wildcard-tls` in the namespace | reflector (copies; go with the namespace) |
 | Harbor | `cr.priv.mlops-club.org/golden-rules-studio/app:6308326-otel` | `otel/build-otel.sh` + in-cluster `crane push` |
-| Grafana Cloud | Folder `studio-otel-poc`; dashboards `studio-otel-pages`, `studio-otel-trace` | `monitoring/terraform-studio-otel` (own state) |
+| Grafana Cloud | Folder `studio-otel-poc`; dashboards `studio-otel-pages`, `studio-otel-trace`, `studio-otel-bubbleup` | `monitoring/terraform-studio-otel` (own state) |
 | Grafana Cloud | Access policy `studio-otel-poc` + token `studio-otel-collector` (expires 2026-12-21) | `monitoring/terraform-studio-otel/otlp-token.sh create` |
 | Grafana Cloud | ~1 week of POC spans in Tempo | the POC; expire with the 14-day retention (cannot be deleted) |
 | Laptop | `~/credentials/homelab-otel.env` (chmod 600) | `setup-otel.sh`, `otlp-token.sh` |
@@ -67,7 +67,7 @@ Production tags (`<sha>` without `-otel`) are not matched.
 
 ```bash
 cd monitoring/terraform-studio-otel
-./tf destroy                    # folder + 2 dashboards; this root's own state only
+./tf destroy                    # folder + 3 dashboards; this root's own state only
 ./otlp-token.sh revoke          # token studio-otel-collector, then policy studio-otel-poc
 ./otlp-token.sh list            # studio-otel-poc no longer listed
 ```

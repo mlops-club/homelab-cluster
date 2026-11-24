@@ -220,6 +220,32 @@ What TraceQL could and couldn't do (all on the free tier, during the trial):
 
 No span-metrics generation was needed, so the POC adds **no** metric series.
 
+### 5a. Compare a selection (BubbleUp-style), added 2026-11-24
+
+Two ways to ask "what do these requests have in common?":
+
+| | **Traces Drilldown** (built in, `/a/grafana-exploretraces-app`) | **Dashboard `studio-otel-bubbleup`** (this root, `bubbleup.tf`) |
+|---|---|---|
+| Y-axis | Duration only | Any integer attribute or duration (variable **Y-axis**) |
+| Selecting | Drag a box on the heatmap (time × duration) | Type the band (**From** / **To**); drag on the heatmap to narrow the time |
+| Comparison | Bar chart per attribute: % of selection vs % of baseline, ranked by difference | Table: each attribute value's spans in / outside the band, sorted by share in the band, next to the overall share |
+| Engine | TraceQL `compare()` | TraceQL `compare()` (`{spans} \| compare({y >= from && y <= to}, 10)`) |
+
+Both found the same thing on the Nov 21 run: backend requests over 1 s were course `A&S500` (Records), Golden and
+Compare (100 % of their spans), with snapshot cache misses at 67 % against 4 % overall. On the Nov 24 run, page views
+whose time to ready was over 600 ms were mostly Marshall's Rules page (50 % of its views against 7.7 % overall).
+
+![Dashboard: page views by time to ready, band 600 ms and up](images/studio-otel/bubbleup/dashboard-page-ready.png)
+
+![Dashboard table: backend requests over 1 s](images/studio-otel/bubbleup/table-backend-over-1s.png)
+
+![Traces Drilldown: drag a box on the duration heatmap, then Comparison](images/studio-otel/bubbleup/traces-drilldown-comparison.png)
+
+Limits:
+- Float attributes can't be the y-axis (TraceQL metrics skip them).
+- The counts `compare()` returns are only good as ratios: they come back up to 2× the span count.
+- Values seen on fewer than 3 spans in the band are hidden, and so are per-span IDs and numbers.
+
 ## 6. The run
 
 `bench/otel_tour.py` (ctdl-xtra) uses the Studio the way a reviewer does: two profiles (`OTel Tester`, engineer;

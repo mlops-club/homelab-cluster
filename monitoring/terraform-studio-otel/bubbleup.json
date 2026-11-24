@@ -1,0 +1,609 @@
+{
+ "title": "Studio OTel POC: compare a selection",
+ "uid": "studio-otel-bubbleup",
+ "time": {
+  "from": "now-3h",
+  "to": "now"
+ },
+ "timezone": "browser",
+ "tags": [
+  "studio",
+  "otel",
+  "poc"
+ ],
+ "templating": {
+  "list": [
+   {
+    "name": "spans",
+    "label": "Spans",
+    "type": "custom",
+    "query": "Backend requests : resource.service.name=\"golden-dataset-studio\" && kind=server,Page views (browser) : resource.service.name=\"golden-dataset-studio-web\" && name=\"page_view\",API calls (browser) : resource.service.name=\"golden-dataset-studio-web\" && kind=client,LCP reports (browser) : resource.service.name=\"golden-dataset-studio-web\" && name=\"LCP\"",
+    "options": [
+     {
+      "text": "Backend requests",
+      "value": "resource.service.name=\"golden-dataset-studio\" && kind=server",
+      "selected": true
+     },
+     {
+      "text": "Page views (browser)",
+      "value": "resource.service.name=\"golden-dataset-studio-web\" && name=\"page_view\"",
+      "selected": false
+     },
+     {
+      "text": "API calls (browser)",
+      "value": "resource.service.name=\"golden-dataset-studio-web\" && kind=client",
+      "selected": false
+     },
+     {
+      "text": "LCP reports (browser)",
+      "value": "resource.service.name=\"golden-dataset-studio-web\" && name=\"LCP\"",
+      "selected": false
+     }
+    ],
+    "current": {
+     "text": "Backend requests",
+     "value": "resource.service.name=\"golden-dataset-studio\" && kind=server"
+    }
+   },
+   {
+    "name": "y",
+    "label": "Y-axis",
+    "type": "custom",
+    "query": "Duration : duration,Page: time to ready (ms) : span.ce.page.ready.duration_ms,Page: slowest API call (ms) : span.ce.stats.api.slowest_ms,Page: DOM nodes : span.ce.page.dom_nodes,LCP (ms) : span.lcp.value,Response size (bytes) : span.http.response.body.size,Snapshot rows : span.ce.snapshot.rows,Rows total : span.ce.rows.total",
+    "options": [
+     {
+      "text": "Duration",
+      "value": "duration",
+      "selected": true
+     },
+     {
+      "text": "Page: time to ready (ms)",
+      "value": "span.ce.page.ready.duration_ms",
+      "selected": false
+     },
+     {
+      "text": "Page: slowest API call (ms)",
+      "value": "span.ce.stats.api.slowest_ms",
+      "selected": false
+     },
+     {
+      "text": "Page: DOM nodes",
+      "value": "span.ce.page.dom_nodes",
+      "selected": false
+     },
+     {
+      "text": "LCP (ms)",
+      "value": "span.lcp.value",
+      "selected": false
+     },
+     {
+      "text": "Response size (bytes)",
+      "value": "span.http.response.body.size",
+      "selected": false
+     },
+     {
+      "text": "Snapshot rows",
+      "value": "span.ce.snapshot.rows",
+      "selected": false
+     },
+     {
+      "text": "Rows total",
+      "value": "span.ce.rows.total",
+      "selected": false
+     }
+    ],
+    "current": {
+     "text": "Duration",
+     "value": "duration"
+    }
+   },
+   {
+    "name": "lo",
+    "label": "From",
+    "type": "textbox",
+    "query": "1s",
+    "description": "Lower edge of the band on the y-axis (duration: 500ms, 2s; others: a number)",
+    "current": {
+     "text": "1s",
+     "value": "1s"
+    }
+   },
+   {
+    "name": "hi",
+    "label": "To",
+    "type": "textbox",
+    "query": "1h",
+    "description": "Upper edge of the band",
+    "current": {
+     "text": "1h",
+     "value": "1h"
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "text",
+   "title": "",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 4
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it\n(**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows\nevery span over time; the table lists each attribute value with how many of its spans are **in the band** and how many\nare **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well\nabove it is what the selection has in common. To narrow the selection in time, drag on the heatmap (the comparison\nthen covers that window only). For a box drawn freehand on a duration heatmap, use\n[Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."
+   }
+  },
+  {
+   "id": 2,
+   "type": "heatmap",
+   "title": "${y} over time: all ${spans:text}",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "TraceQL histogram_over_time: buckets are powers of two. The band you selected is From..To",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 18,
+    "h": 11
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "range",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | histogram_over_time(${y})"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "calculate": false,
+    "yAxis": {
+     "axisPlacement": "left",
+     "unit": "short"
+    },
+    "cellGap": 1,
+    "color": {
+     "mode": "scheme",
+     "scheme": "Blues",
+     "scale": "exponential",
+     "exponent": 0.5,
+     "fill": "dark-blue"
+    },
+    "rowsFrame": {
+     "layout": "auto"
+    },
+    "tooltip": {
+     "mode": "single",
+     "yHistogram": true
+    },
+    "legend": {
+     "show": true
+    },
+    "exemplars": {
+     "color": "orange"
+    }
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "In the band",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 4,
+    "w": 3,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | count_over_time()"
+    }
+   ],
+   "options": {
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "noValue": "0"
+    }
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "All spans",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "gridPos": {
+    "x": 21,
+    "y": 4,
+    "w": 3,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | count_over_time()"
+    }
+   ],
+   "options": {
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "noValue": "0"
+    }
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Overall share in the band",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "In the band / all spans. A value whose share in the table is well above this is overrepresented",
+   "gridPos": {
+    "x": 18,
+    "y": 9,
+    "w": 6,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | count_over_time()",
+     "hide": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | count_over_time()",
+     "hide": true
+    },
+    {
+     "refId": "RA",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "A",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "RB",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "B",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$RA / $RB"
+    }
+   ],
+   "options": {
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 1,
+     "noValue": "–"
+    }
+   }
+  },
+  {
+   "id": 6,
+   "type": "table",
+   "title": "What the band has in common: attribute values by share of their spans in the band",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "TraceQL compare(): for each attribute value (top 10 per attribute), spans in the band and outside it. Share = in band / (in band + outside). Per-span IDs are hidden",
+   "gridPos": {
+    "x": 0,
+    "y": 15,
+    "w": 24,
+    "h": 16
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "seriesToRows",
+     "options": {}
+    },
+    {
+     "id": "extractFields",
+     "options": {
+      "source": "Metric",
+      "format": "regexp",
+      "regExp": "/\\{__meta_type=\"(?<type>[^\"]+)\", (?<item>.*)\\}/",
+      "replace": false
+     }
+    },
+    {
+     "id": "filterByValue",
+     "options": {
+      "type": "exclude",
+      "match": "any",
+      "filters": [
+       {
+        "fieldName": "type",
+        "config": {
+         "id": "regex",
+         "options": {
+          "value": ".*_total"
+         }
+        }
+       },
+       {
+        "fieldName": "item",
+        "config": {
+         "id": "regex",
+         "options": {
+          "value": "([^=]+=[-0-9.e+]+|.*sha256.*|.*(navigation_id|navigation_start_time|client\\.port|page_view\\.id|session\\.id|\\.delta|_time\\b|_time=|deployment\\.id|pipeline\\.run\\.id|SampleRate|instrumentation:|ce\\.page\\.stem).*)"
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "type",
+      "rowField": "item",
+      "valueField": "Value",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "filterByValue",
+     "options": {
+      "type": "include",
+      "match": "any",
+      "filters": [
+       {
+        "fieldName": "selection",
+        "config": {
+         "id": "greaterOrEqual",
+         "options": {
+          "value": 3
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "id": "calculateField",
+     "options": {
+      "mode": "reduceRow",
+      "alias": "all",
+      "reduce": {
+       "reducer": "sum",
+       "include": [
+        "baseline",
+        "selection"
+       ]
+      }
+     }
+    },
+    {
+     "id": "calculateField",
+     "options": {
+      "mode": "binary",
+      "alias": "share in band",
+      "binary": {
+       "left": {
+        "matcher": {
+         "id": "byName",
+         "options": "selection"
+        }
+       },
+       "operator": "/",
+       "right": {
+        "matcher": {
+         "id": "byName",
+         "options": "all"
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "all": true
+      },
+      "indexByName": {
+       "item\\type": 0,
+       "share in band": 1,
+       "selection": 2,
+       "baseline": 3
+      },
+      "renameByName": {
+       "item\\type": "attribute = value",
+       "selection": "in band",
+       "baseline": "outside band"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "share in band",
+        "desc": true
+       },
+       {
+        "field": "in band",
+        "desc": true
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "share in band"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 1
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "attribute = value"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 560
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm"
+   }
+  }
+ ]
+}
