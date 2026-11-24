@@ -32,6 +32,38 @@ and the three branches
 older `opentelemetry` namespace collector, created 2026-06-13). No cluster-scoped object was created; the POC's
 collector uses a namespaced Role.
 
+## Production telemetry (since 2026-11-24)
+
+Production (`golden-rules-studio`) now runs the traced Studio too, on purpose: the owner approved it to see why the
+WVU catalog is slow on real reviewer traffic. Deploy repo branch `feat/otel-production` (draft PR
+mlops-club/golden-rules-studio-deploy#3), deployed from a laptop with `otel-prod/deploy-prod-otel.sh 7b10a63-otel`.
+
+| Where | Resource |
+|---|---|
+| Cluster, `golden-rules-studio` | Deployment `golden-rules-studio` on `app:7b10a63-otel` with OTel env (`deployment.environment.name=production`) and a command wrapper; Ingress path `/otlp` → `otel-collector:4319` (public, no auth; 1 MiB body limit, memory_limiter) |
+| Cluster, `golden-rules-studio` | Deployment, Service, ConfigMap, ServiceAccount, Role, RoleBinding `otel-collector`; Secret `grafana-otlp` (a copy of the POC's) |
+| Harbor | `app:7b10a63-otel` (production's running image) |
+| Grafana Cloud | Spans with `resource.deployment.environment.name="production"`, exported with the POC's token `studio-otel-collector` |
+
+**This changes the POC teardown:** step 2's `--images` would delete `7b10a63-otel` and step 3's `revoke` would stop
+production's export. Roll production back first. The token also expires 2026-12-21; rotate it, then re-run
+`otel-prod/setup-prod-otel.sh` and restart `deployment/otel-collector`, if production should keep tracing.
+
+Rollback (deploy repo, branch `feat/otel-production`):
+
+```bash
+./otel-prod/rollback-prod-otel.sh
+# which is:
+./deploy.sh a78be91 golden-dataset-studio      # plain manifest.yaml: removes the OTel env, command and /otlp
+kubectl -n golden-rules-studio delete deployment/otel-collector service/otel-collector configmap/otel-collector \
+  rolebinding/otel-collector role/otel-collector serviceaccount/otel-collector secret/grafana-otlp
+curl -s -o /dev/null -w '%{http_code}\n' https://golden-rules-studio.mlops-club.org/api/health   # 200
+```
+
+Tracing off without changing the image: `kubectl -n golden-rules-studio set env deployment/golden-rules-studio
+OTEL_SDK_DISABLED=true GOLDEN_DATASETS_OTEL_BROWSER_ENDPOINT-`. A Deploy-workflow run from `main` also removes the
+telemetry (the collector stays, idle).
+
 ## Steps
 
 ### 0. Production baseline
@@ -61,7 +93,7 @@ that may delete artifacts:
 HARBOR_USER=… HARBOR_PASSWORD=… ./otel/teardown-otel.sh --images   # deletes every *-otel tag
 ```
 
-Production tags (`<sha>` without `-otel`) are not matched.
+Production tags (`<sha>` without `-otel`) are not matched. **Since 2026-11-24 production runs `7b10a63-otel`: roll production back first (see Production telemetry) or delete only the POC's tags by hand.**
 
 ### 3. Grafana Cloud (homelab repo)
 
@@ -72,7 +104,7 @@ cd monitoring/terraform-studio-otel
 ./otlp-token.sh list            # studio-otel-poc no longer listed
 ```
 
-`monitoring/terraform/` (the main POC root) is not touched.
+`monitoring/terraform/` (the main POC root) is not touched. **`revoke` also stops production's export (same token): roll production back first.**
 
 ### 4. Laptop
 
