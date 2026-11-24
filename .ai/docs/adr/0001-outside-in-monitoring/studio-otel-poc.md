@@ -256,6 +256,24 @@ Limits:
 - The counts `compare()` returns are only good as ratios: they come back up to 2× the span count.
 - Values seen on fewer than 3 spans in the band are hidden, and so are per-span IDs and numbers.
 
+**Honeycomb-style filters and Group by** (added 2026-11-24): two filter bars, **Where** and **And**, narrow every panel.
+They are Grafana ad hoc filters on the Tempo data source: click one, type, and it suggests attribute names from Tempo,
+then the values that occur (given the other filters). **Group by** splits two new panels by an attribute: a stacked
+count over time and the p90 of the y-axis attribute (log scale). It offers a short list and takes any attribute typed in.
+
+How it works, and why it's built this way:
+- Grafana applies ad hoc filters by itself only to Tempo's query-builder queries. In a raw TraceQL query, `${where}`
+  renders as `a="x",b="y"`, which isn't TraceQL. A pipeline of spanset filters is valid TraceQL, though, so each bar
+  becomes a stage: `{spans} | {${where}} | {${and}} | …`. An empty bar renders `| {}`, which matches every span.
+- So each bar takes **one condition**: two conditions in one bar make the comma form and the query fails.
+- Tempo's dashboard variables can't do the same job. "Label values" doesn't substitute a variable in its label, so
+  values can't follow a chosen attribute, and "Label names" returns only the built-in fields.
+- **Suggestions only cover recent data.** The Tempo data source (`grafanacloud-traces`) has no "time range for tags"
+  set, so Tempo lists the attributes from recent blocks only: 25 built-in fields against 242 when asked for a time
+  range. On older data (the 16:50Z tour, checked three hours later), the bars offer only built-in fields, but a typed attribute name still
+  works (choose "Use custom value"). Setting **Time range for tags** in the data source settings fixes this for every
+  user of the stack, so it's left to the owner.
+
 ## 6. The run
 
 `bench/otel_tour.py` (ctdl-xtra) uses the Studio the way a reviewer does: two profiles (`OTel Tester`, engineer;

@@ -37,7 +37,11 @@ Y = [
 # attributes that are unique per span or per page load: they never explain a selection
 NOISE = r"([^=]+=[-0-9.e+]+|.*sha256.*|.*(navigation_id|navigation_start_time|client\.port|page_view\.id|session\.id|\.delta|_time\b|_time=|deployment\.id|pipeline\.run\.id|SampleRate|instrumentation:|ce\.page\.stem).*)"
 
-MIN_IN_BAND = 3  # a value seen on one or two spans in the band says little
+MIN_IN_BAND = 3
+# attributes worth grouping by (low cardinality); the Group by box also takes any attribute typed in
+GROUP_BY = [(a, a) for a in ("span.ce.page", "span.ce.catalog", "span.http.route", "name", "span.user.id",
+                              "span.ce.request.type", "span.http.response.status_code", "span.ce.rule.id",
+                              "span.ce.page_view.kind", "resource.browser.name", "status")]  # a value seen on one or two spans in the band says little
 
 
 # the string attributes shown in a dot's tooltip, plus the y-axis attribute (duration is always on a span row)
@@ -64,12 +68,19 @@ def textbox(name, label, value, desc):
             "current": {"text": value, "value": value}}
 
 
-base = f"{{${{spans}} && {ENV}}}"
+# Honeycomb-style WHERE: Grafana ad hoc filter bars. Their keys and values autocomplete from Tempo (values only those
+# seen with the other filters), but a bar renders as `a="x",b="y"`, which is not TraceQL. A pipeline of spanset filters
+# is: each bar gets its own stage, `| {a="x"}`, and an empty bar is `| {}` (every span). So: one condition per bar.
+FILTERS = ("where", "and")
+cond = f"${{spans}} && {ENV}"
+stages = "".join(f" | {{${{{f}}}}}" for f in FILTERS)
+base = f"{{{cond}}}{stages}"
 band = "${y} >= ${lo} && ${y} <= ${hi}"
 q = lambda traceql, kind="range": {"refId": "A", "datasource": TEMPO, "queryType": "traceql",
                                    "metricsQueryType": kind, "query": traceql}
 
-intro = """**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it
+intro = """**Compare a selection** (BubbleUp-style). Narrow the spans with the **Where** and **and** filter bars (attribute names and values
+autocomplete from Tempo; one condition per bar) and break them down with **Group by**. Choose **Spans**, the **Y-axis** attribute and a band on it
 (**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows
 every span over time as counts; the dot chart under it shows every span on its own (click one for its trace); the table lists each attribute value with how many of its spans are **in the band** and how many
 are **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well
@@ -78,11 +89,11 @@ then covers that window only). For a box drawn freehand on a duration heatmap, u
 [Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."""
 
 panels = [
-    {"id": 1, "type": "text", "title": "", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 4},
+    {"id": 1, "type": "text", "title": "", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 5},
      "options": {"mode": "markdown", "content": intro}},
     {"id": 2, "type": "heatmap", "title": "${y} over time: all ${spans:text}", "datasource": TEMPO,
      "description": "TraceQL histogram_over_time: buckets are powers of two. The band you selected is From..To",
-     "gridPos": {"x": 0, "y": 4, "w": 18, "h": 11},
+     "gridPos": {"x": 0, "y": 5, "w": 18, "h": 10},
      "targets": [q(f"{base} | histogram_over_time(${{y}})")],
      "fieldConfig": {"defaults": {"unit": "short"}},
      "options": {"calculate": False, "yAxis": {"axisPlacement": "left", "unit": "short"}, "cellGap": 1,
@@ -90,19 +101,19 @@ panels = [
                  "rowsFrame": {"layout": "auto"}, "tooltip": {"mode": "single", "yHistogram": True},
                  "legend": {"show": True}, "exemplars": {"color": "orange"}}},
     {"id": 3, "type": "stat", "title": "In the band", "datasource": TEMPO,
-     "gridPos": {"x": 18, "y": 4, "w": 3, "h": 5},
-     "targets": [q(f"{{${{spans}} && {ENV} && {band}}} | count_over_time()", "instant")],
+     "gridPos": {"x": 18, "y": 5, "w": 3, "h": 4},
+     "targets": [q(f"{{{cond} && {band}}}{stages} | count_over_time()", "instant")],
      "options": {"colorMode": "none", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "noValue": "0"}}},
     {"id": 4, "type": "stat", "title": "All spans", "datasource": TEMPO,
-     "gridPos": {"x": 21, "y": 4, "w": 3, "h": 5},
+     "gridPos": {"x": 21, "y": 5, "w": 3, "h": 4},
      "targets": [q(f"{base} | count_over_time()", "instant")],
      "options": {"colorMode": "none", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "noValue": "0"}}},
     {"id": 5, "type": "stat", "title": "Overall share in the band", "datasource": TEMPO,
      "description": "In the band / all spans. A value whose share in the table is well above this is overrepresented",
      "gridPos": {"x": 18, "y": 9, "w": 6, "h": 6},
-     "targets": [dict(q(f"{{${{spans}} && {ENV} && {band}}} | count_over_time()", "instant"), refId="A", hide=True),
+     "targets": [dict(q(f"{{{cond} && {band}}}{stages} | count_over_time()", "instant"), refId="A", hide=True),
                  dict(q(f"{base} | count_over_time()", "instant"), refId="B", hide=True),
                  # instant TraceQL results carry different timestamps, so reduce each to a number before dividing
                  {"refId": "RA", "datasource": EXPR, "type": "reduce", "expression": "A", "reducer": "last", "hide": True},
@@ -110,13 +121,32 @@ panels = [
                  {"refId": "C", "datasource": EXPR, "type": "math", "expression": "$RA / $RB"}],
      "options": {"colorMode": "none", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 1, "noValue": "–"}}},
+    {"id": 8, "type": "timeseries", "title": "How many: ${spans:text} by ${by}", "datasource": TEMPO,
+     "description": "TraceQL count_over_time() by the Group by attribute (spans without it are one series)",
+     "gridPos": {"x": 0, "y": 15, "w": 12, "h": 9},
+     "targets": [q(f"{base} | count_over_time() by (${{by}})")],
+     "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"},
+                                                          "lineWidth": 0}}},
+     "options": {"legend": {"showLegend": True, "displayMode": "table", "placement": "right", "calcs": ["sum"],
+                            "sortBy": "Total", "sortDesc": True}, "tooltip": {"mode": "multi", "sort": "desc"}}},
+    {"id": 9, "type": "timeseries", "title": "p90 ${y:text} by ${by}", "datasource": TEMPO,
+     "description": "TraceQL quantile_over_time(y, 0.9) by the Group by attribute, log scale. Duration is in seconds",
+     "gridPos": {"x": 12, "y": 15, "w": 12, "h": 9},
+     "targets": [q(f"{base} | quantile_over_time(${{y}}, .9) by (${{by}})")],
+     "transformations": [{"id": "renameByRegex", "options": {"regex": r'\{p=0\.9, [^=]+="(.*)"\}', "renamePattern": "$1"}},
+                         {"id": "renameByRegex", "options": {"regex": r"^0\.9$", "renamePattern": "(not set)"}}],
+     "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "points", "pointSize": 7, "showPoints": "always",
+                                                          # log scale: Tempo reports empty intervals as 0, which drop out
+                                                          "scaleDistribution": {"type": "log", "log": 2}}}},
+     "options": {"legend": {"showLegend": True, "displayMode": "table", "placement": "right", "calcs": ["max"],
+                            "sortBy": "Max", "sortDesc": True}, "tooltip": {"mode": "multi", "sort": "desc"}}},
     {"id": 7, "type": "xychart", "title": "Every span: ${y:text} over time. Click a dot, then a link, for its trace",
      "datasource": TEMPO,
      "description": "TraceQL search, one dot per span (up to 1000 traces, 100 spans each: on a busy range not every span "
                     "is shown, so narrow the time range). Duration is shown in time units. The Tempo panel merges every "
                     "query into one frame, so spans in the band cannot be coloured separately: use the counts and the "
                     "table below for the band",
-     "gridPos": {"x": 0, "y": 15, "w": 24, "h": 14},
+     "gridPos": {"x": 0, "y": 24, "w": 24, "h": 14},
      "targets": [search("A", f"{base} | select({SELECT})")],
      # selected attributes arrive as text: make the y-axis candidates numbers. A span row always ends with duration,
      # so the first number on a row is the y-axis attribute when one is selected, and duration otherwise
@@ -138,7 +168,7 @@ panels = [
      "datasource": TEMPO,
      "description": "TraceQL compare(): for each attribute value (top 10 per attribute), spans in the band and outside it. "
                     "Share = in band / (in band + outside). Per-span IDs are hidden",
-     "gridPos": {"x": 0, "y": 29, "w": 24, "h": 16},
+     "gridPos": {"x": 0, "y": 38, "w": 24, "h": 16},
      "targets": [q(f"{base} | compare({{{band}}}, 10)", "instant")],
      "transformations": [
          {"id": "seriesToRows", "options": {}},
@@ -181,6 +211,10 @@ dash = {
         custom("y", "Y-axis", Y, "duration"),
         textbox("lo", "From", "1s", "Lower edge of the band on the y-axis (duration: 500ms, 2s; others: a number)"),
         textbox("hi", "To", "1h", "Upper edge of the band"),
+        *[{"name": f, "label": f.capitalize(), "type": "adhoc", "datasource": TEMPO, "filters": [],
+           "description": "One condition per bar: an attribute (type to search), an operator, a value"} for f in FILTERS],
+        dict(custom("by", "Group by", GROUP_BY, "span.ce.page"), allowCustomValue=True,
+             description="The attribute the two breakdown panels group by; pick one or type any attribute"),
     ]},
     "panels": panels,
 }
