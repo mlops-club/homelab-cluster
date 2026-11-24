@@ -79,13 +79,13 @@ band = "${y} >= ${lo} && ${y} <= ${hi}"
 q = lambda traceql, kind="range": {"refId": "A", "datasource": TEMPO, "queryType": "traceql",
                                    "metricsQueryType": kind, "query": traceql}
 
-intro = """**Compare a selection** (BubbleUp-style). Narrow the spans with the **Where** and **and** filter bars (attribute names and values
-autocomplete from Tempo; one condition per bar) and break them down with **Group by**. Choose **Spans**, the **Y-axis** attribute and a band on it
-(**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows
-every span over time as counts; the dot chart under it shows every span on its own (click one for its trace); the table lists each attribute value with how many of its spans are **in the band** and how many
-are **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well
-above it is what the selection has in common. To narrow the selection in time, drag on the heatmap (the comparison
-then covers that window only). For a box drawn freehand on a duration heatmap, use
+intro = """**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it (**From** /
+**To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). Narrow the spans with the **Where**
+and **And** filter bars (names and values autocomplete from Tempo; one condition per bar) and split counts with **Group by**.
+The heatmap shows the shape, the dot chart every span (click one for its trace). At the bottom, one histogram per attribute:
+for each value, the share of the spans **in the band** (orange) next to the share of **everything else** (gray). A value
+whose orange bar is much longer than its gray one is what the selection has in common. Drag on the heatmap to narrow the
+time range. Traces Drilldown has the same view for a box drawn on a duration heatmap:
 [Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."""
 
 panels = [
@@ -164,41 +164,93 @@ panels = [
                              "x": {"matcher": {"id": "byName", "options": "time"}},
                              "y": {"matcher": {"id": "byType", "options": "number"}}}],
                  "tooltip": {"mode": "single"}, "legend": {"showLegend": False, "displayMode": "list", "placement": "bottom"}}},
-    {"id": 6, "type": "table", "title": "What the band has in common: attribute values by share of their spans in the band",
-     "datasource": TEMPO,
-     "description": "TraceQL compare(): for each attribute value (top 10 per attribute), spans in the band and outside it. "
-                    "Share = in band / (in band + outside). Per-span IDs are hidden",
-     "gridPos": {"x": 0, "y": 38, "w": 24, "h": 16},
-     "targets": [q(f"{base} | compare({{{band}}}, 10)", "instant")],
-     "transformations": [
-         {"id": "seriesToRows", "options": {}},
-         {"id": "extractFields", "options": {"source": "Metric", "format": "regexp",
-          "regExp": r'/\{__meta_type="(?<type>[^"]+)", (?<item>.*)\}/', "replace": False}},
-         {"id": "filterByValue", "options": {"type": "exclude", "match": "any", "filters": [
-             {"fieldName": "type", "config": {"id": "regex", "options": {"value": ".*_total"}}},
-             {"fieldName": "item", "config": {"id": "regex", "options": {"value": NOISE}}}]}},
-         {"id": "groupingToMatrix", "options": {"columnField": "type", "rowField": "item", "valueField": "Value",
-                                                "emptyValue": "zero"}},
-         {"id": "filterByValue", "options": {"type": "include", "match": "any", "filters": [
-             {"fieldName": "selection", "config": {"id": "greaterOrEqual", "options": {"value": MIN_IN_BAND}}}]}},
-         {"id": "calculateField", "options": {"mode": "reduceRow", "alias": "all",
-          "reduce": {"reducer": "sum", "include": ["baseline", "selection"]}}},
-         {"id": "calculateField", "options": {"mode": "binary", "alias": "share in band",
-          "binary": {"left": {"matcher": {"id": "byName", "options": "selection"}}, "operator": "/",
-                     "right": {"matcher": {"id": "byName", "options": "all"}}}}},
-         {"id": "organize", "options": {"excludeByName": {"all": True},
-          "indexByName": {"item\\type": 0, "share in band": 1, "selection": 2, "baseline": 3},
-          "renameByName": {"item\\type": "attribute = value", "selection": "in band", "baseline": "outside band"}}},
-         {"id": "sortBy", "options": {"sort": [{"field": "share in band", "desc": True}, {"field": "in band", "desc": True}]}},
-     ],
-     "fieldConfig": {"defaults": {"custom": {"align": "auto"}}, "overrides": [
-         {"matcher": {"id": "byName", "options": "share in band"}, "properties": [
-             {"id": "unit", "value": "percentunit"}, {"id": "decimals", "value": 0}, {"id": "max", "value": 1}, {"id": "min", "value": 0},
-             {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "basic", "valueDisplayMode": "text"}},
-             {"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
-         {"matcher": {"id": "byName", "options": "attribute = value"}, "properties": [{"id": "custom.width", "value": 560}]}]},
-     "options": {"showHeader": True, "cellHeight": "sm"}},
 ]
+
+# -- BubbleUp: one histogram per attribute, a pair of bars per value ------------------------------------------------
+# For each attribute: the share of the band's spans with each value next to the share of all other spans with it.
+# Shares come from server-side expressions: count by value (reduced to numbers) divided by the group's total. Strings
+# group by value (top 10 by share in the band); numbers group into TraceQL's power-of-two buckets.
+outside = "(${y} < ${lo} || ${y} > ${hi})"
+IN_COLOR, OUT_COLOR = "orange", "#94a3b8"
+# (attribute, kind, title): kind "str" = count by value, "num" = histogram buckets
+BACKEND_ATTRS = [("span.http.route", "str", "Route"), ("span.ce.page", "str", "Page (from the browser)"),
+                 ("span.ce.catalog", "str", "Catalog"), ("span.ce.course.key", "str", "Course"),
+                 ("span.ce.rule.id", "str", "Rule"), ("span.ce.snapshot.cache", "str", "Snapshot cache"),
+                 ("span.http.response.status_code", "str", "Status code"), ("span.user.id", "str", "User"),
+                 ("span.http.response.body.size", "num", "Response size (bytes)")]
+BROWSER_ATTRS = [("span.ce.page", "str", "Page"), ("span.ce.catalog", "str", "Catalog"),
+                 ("span.ce.page_view.kind", "str", "Hard or soft load"), ("span.url.template", "str", "API call"),
+                 ("span.user.id", "str", "User"), ("resource.browser.name", "str", "Browser"),
+                 ("span.ce.stats.api.calls", "num", "API calls per page"), ("span.ce.page.dom_nodes", "num", "DOM nodes")]
+_ids = iter(range(100, 200))
+
+
+def share_targets(metric, label):
+    """IN and OUT: for each value of `label`, its share of the band's spans and of the other spans."""
+    t = []
+    for g, sel in (("I", band), ("O", outside)):
+        t += [dict(q(f"{{{cond} && {sel}}}{stages} | {metric}", "instant"), refId=f"{g}V", hide=True),
+              # grouped by service too, so the total's labels are a subset of each value's (else the division can't pair them)
+              dict(q(f"{{{cond} && {sel}}}{stages} | count_over_time() by (resource.service.name)", "instant"),
+                   refId=f"{g}T", hide=True),
+              {"refId": f"{g}RV", "datasource": EXPR, "type": "reduce", "expression": f"{g}V", "reducer": "last", "hide": True},
+              {"refId": f"{g}RT", "datasource": EXPR, "type": "reduce", "expression": f"{g}T", "reducer": "last", "hide": True},
+              {"refId": "IN" if g == "I" else "OUT", "datasource": EXPR, "type": "math", "expression": f"${g}RV / ${g}RT"}]
+    return t
+
+
+def attr_panel(attr, kind, title, x, y, w=12, h=9):
+    label = "__bucket" if kind == "num" else attr
+    metric = (f"histogram_over_time({attr}) by (resource.service.name)" if kind == "num"
+              else f"count_over_time() by ({attr}, resource.service.name)")
+    tr = [{"id": "reduce", "options": {"mode": "seriesToRows", "reducers": ["lastNotNull"], "labelsToFields": True}},
+          {"id": "groupingToMatrix", "options": {"columnField": "Field", "rowField": label, "valueField": "Last *",
+                                                 "emptyValue": "zero"}},
+          {"id": "organize", "options": {"renameByName": {f"{label}\\Field": "value", "IN": "in the band",
+                                                          "OUT": "everything else"}}}]
+    if kind == "num":
+        tr += [{"id": "convertFieldType", "options": {"conversions": [{"targetField": "value", "destinationType": "number"}]}},
+               {"id": "sortBy", "options": {"sort": [{"field": "value"}]}},
+               {"id": "convertFieldType", "options": {"conversions": [{"targetField": "value", "destinationType": "string"}]}}]
+    else:
+        tr += [{"id": "sortBy", "options": {"sort": [{"field": "in the band", "desc": True}, {"field": "everything else", "desc": True}]}},
+               {"id": "limit", "options": {"limitField": 10}}]
+    return {"id": next(_ids), "type": "barchart", "title": title, "datasource": TEMPO,
+            "description": f"{attr}: share of the spans in the band (orange) and of all other spans (gray) with each "
+                           + ("value (top 10)" if kind == "str" else "value, in power-of-two buckets (upper bounds)"),
+            "gridPos": {"x": x, "y": y, "w": w, "h": h}, "targets": share_targets(metric, label),
+            "transformations": tr,
+            "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 0, "min": 0, "max": 1,
+                                         "custom": {"fillOpacity": 85, "lineWidth": 0}},
+                            "overrides": [
+                                # label values arrive quoted ("marshall"); nil = spans without the attribute
+                                {"matcher": {"id": "byName", "options": "value"}, "properties": [{"id": "mappings", "value": [
+                                    {"type": "regex", "options": {"pattern": '^"(.*)"$', "result": {"text": "$1"}}},
+                                    {"type": "value", "options": {"nil": {"text": "(not set)"}}},
+                                    {"type": "special", "options": {"match": "empty", "result": {"text": "(not set)"}}},
+                                    {"type": "special", "options": {"match": "null", "result": {"text": "(not set)"}}}]},
+                                    {"id": "unit", "value": "none"}]},
+                                {"matcher": {"id": "byName", "options": "in the band"},
+                                 "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": IN_COLOR}}]},
+                                {"matcher": {"id": "byName", "options": "everything else"},
+                                 "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": OUT_COLOR}}]}]},
+            "options": {"orientation": "horizontal" if kind == "str" else "vertical", "xField": "value",
+                        "groupWidth": 0.75, "barWidth": 0.9, "showValue": "never", "stacking": "none",
+                        "legend": {"showLegend": False, "displayMode": "list", "placement": "bottom"},
+                        "tooltip": {"mode": "multi"}, "xTickLabelMaxLength": 48, "fullHighlight": False,
+                        "xTickLabelRotation": 0 if kind == "str" else -45, "xTickLabelSpacing": 0}}
+
+
+def attr_section(title, attrs, y, collapsed):
+    ps = [attr_panel(a, k, t, 12 * (i % 2), y + 1 + 9 * (i // 2)) for i, (a, k, t) in enumerate(attrs)]
+    row = {"id": next(_ids), "type": "row", "title": title, "collapsed": collapsed, "gridPos": {"x": 0, "y": y, "w": 24, "h": 1},
+           "panels": ps if collapsed else []}
+    return [row] + ([] if collapsed else ps)
+
+
+panels += attr_section("What the band has in common: backend requests (orange = in the band, gray = everything else)",
+                       BACKEND_ATTRS, 38, False)
+panels += attr_section("What the band has in common: browser spans (page views, API calls)", BROWSER_ATTRS, 85, True)
 
 dash = {
     "title": "Studio OTel POC: compare a selection",

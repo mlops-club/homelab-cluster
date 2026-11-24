@@ -225,7 +225,7 @@
    },
    "options": {
     "mode": "markdown",
-    "content": "**Compare a selection** (BubbleUp-style). Narrow the spans with the **Where** and **and** filter bars (attribute names and values\nautocomplete from Tempo; one condition per bar) and break them down with **Group by**. Choose **Spans**, the **Y-axis** attribute and a band on it\n(**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows\nevery span over time as counts; the dot chart under it shows every span on its own (click one for its trace); the table lists each attribute value with how many of its spans are **in the band** and how many\nare **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well\nabove it is what the selection has in common. To narrow the selection in time, drag on the heatmap (the comparison\nthen covers that window only). For a box drawn freehand on a duration heatmap, use\n[Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."
+    "content": "**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it (**From** /\n**To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). Narrow the spans with the **Where**\nand **And** filter bars (names and values autocomplete from Tempo; one condition per bar) and split counts with **Group by**.\nThe heatmap shows the shape, the dot chart every span (click one for its trace). At the bottom, one histogram per attribute:\nfor each value, the share of the spans **in the band** (orange) next to the share of **everything else** (gray). A value\nwhose orange bar is much longer than its gray one is what the selection has in common. Drag on the heatmap to narrow the\ntime range. Traces Drilldown has the same view for a box drawn on a duration heatmap:\n[Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."
    }
   },
   {
@@ -741,152 +741,168 @@
    }
   },
   {
-   "id": 6,
-   "type": "table",
-   "title": "What the band has in common: attribute values by share of their spans in the band",
-   "datasource": {
-    "type": "tempo",
-    "uid": "grafanacloud-traces"
-   },
-   "description": "TraceQL compare(): for each attribute value (top 10 per attribute), spans in the band and outside it. Share = in band / (in band + outside). Per-span IDs are hidden",
+   "id": 109,
+   "type": "row",
+   "title": "What the band has in common: backend requests (orange = in the band, gray = everything else)",
+   "collapsed": false,
    "gridPos": {
     "x": 0,
     "y": 38,
     "w": 24,
-    "h": 16
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 100,
+   "type": "barchart",
+   "title": "Route",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.http.route: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 0,
+    "y": 39,
+    "w": 12,
+    "h": 9
    },
    "targets": [
     {
-     "refId": "A",
+     "refId": "IV",
      "datasource": {
       "type": "tempo",
       "uid": "grafanacloud-traces"
      },
      "queryType": "traceql",
      "metricsQueryType": "instant",
-     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)"
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.http.route, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.http.route, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
     }
    ],
    "transformations": [
     {
-     "id": "seriesToRows",
-     "options": {}
-    },
-    {
-     "id": "extractFields",
+     "id": "reduce",
      "options": {
-      "source": "Metric",
-      "format": "regexp",
-      "regExp": "/\\{__meta_type=\"(?<type>[^\"]+)\", (?<item>.*)\\}/",
-      "replace": false
-     }
-    },
-    {
-     "id": "filterByValue",
-     "options": {
-      "type": "exclude",
-      "match": "any",
-      "filters": [
-       {
-        "fieldName": "type",
-        "config": {
-         "id": "regex",
-         "options": {
-          "value": ".*_total"
-         }
-        }
-       },
-       {
-        "fieldName": "item",
-        "config": {
-         "id": "regex",
-         "options": {
-          "value": "([^=]+=[-0-9.e+]+|.*sha256.*|.*(navigation_id|navigation_start_time|client\\.port|page_view\\.id|session\\.id|\\.delta|_time\\b|_time=|deployment\\.id|pipeline\\.run\\.id|SampleRate|instrumentation:|ce\\.page\\.stem).*)"
-         }
-        }
-       }
-      ]
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
      }
     },
     {
      "id": "groupingToMatrix",
      "options": {
-      "columnField": "type",
-      "rowField": "item",
-      "valueField": "Value",
+      "columnField": "Field",
+      "rowField": "span.http.route",
+      "valueField": "Last *",
       "emptyValue": "zero"
-     }
-    },
-    {
-     "id": "filterByValue",
-     "options": {
-      "type": "include",
-      "match": "any",
-      "filters": [
-       {
-        "fieldName": "selection",
-        "config": {
-         "id": "greaterOrEqual",
-         "options": {
-          "value": 3
-         }
-        }
-       }
-      ]
-     }
-    },
-    {
-     "id": "calculateField",
-     "options": {
-      "mode": "reduceRow",
-      "alias": "all",
-      "reduce": {
-       "reducer": "sum",
-       "include": [
-        "baseline",
-        "selection"
-       ]
-      }
-     }
-    },
-    {
-     "id": "calculateField",
-     "options": {
-      "mode": "binary",
-      "alias": "share in band",
-      "binary": {
-       "left": {
-        "matcher": {
-         "id": "byName",
-         "options": "selection"
-        }
-       },
-       "operator": "/",
-       "right": {
-        "matcher": {
-         "id": "byName",
-         "options": "all"
-        }
-       }
-      }
      }
     },
     {
      "id": "organize",
      "options": {
-      "excludeByName": {
-       "all": true
-      },
-      "indexByName": {
-       "item\\type": 0,
-       "share in band": 1,
-       "selection": 2,
-       "baseline": 3
-      },
       "renameByName": {
-       "item\\type": "attribute = value",
-       "selection": "in band",
-       "baseline": "outside band"
+       "span.http.route\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
       }
      }
     },
@@ -895,54 +911,93 @@
      "options": {
       "sort": [
        {
-        "field": "share in band",
+        "field": "in the band",
         "desc": true
        },
        {
-        "field": "in band",
+        "field": "everything else",
         "desc": true
        }
       ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
      }
     }
    ],
    "fieldConfig": {
     "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
      "custom": {
-      "align": "auto"
+      "fillOpacity": 85,
+      "lineWidth": 0
      }
     },
     "overrides": [
      {
       "matcher": {
        "id": "byName",
-       "options": "share in band"
+       "options": "value"
       },
       "properties": [
        {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
         "id": "unit",
-        "value": "percentunit"
-       },
-       {
-        "id": "decimals",
-        "value": 0
-       },
-       {
-        "id": "max",
-        "value": 1
-       },
-       {
-        "id": "min",
-        "value": 0
-       },
-       {
-        "id": "custom.cellOptions",
-        "value": {
-         "type": "gauge",
-         "mode": "basic",
-         "valueDisplayMode": "text"
-        }
-       },
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
        {
         "id": "color",
         "value": {
@@ -955,21 +1010,4759 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "attribute = value"
+       "options": "everything else"
       },
       "properties": [
        {
-        "id": "custom.width",
-        "value": 560
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
        }
       ]
      }
     ]
    },
    "options": {
-    "showHeader": true,
-    "cellHeight": "sm"
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
    }
+  },
+  {
+   "id": 101,
+   "type": "barchart",
+   "title": "Page (from the browser)",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.ce.page: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 12,
+    "y": 39,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.ce.page",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.ce.page\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 102,
+   "type": "barchart",
+   "title": "Catalog",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.ce.catalog: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 0,
+    "y": 48,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.ce.catalog",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.ce.catalog\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 103,
+   "type": "barchart",
+   "title": "Course",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.ce.course.key: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 12,
+    "y": 48,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.course.key, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.course.key, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.ce.course.key",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.ce.course.key\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 104,
+   "type": "barchart",
+   "title": "Rule",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.ce.rule.id: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 0,
+    "y": 57,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.rule.id, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.rule.id, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.ce.rule.id",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.ce.rule.id\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 105,
+   "type": "barchart",
+   "title": "Snapshot cache",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.ce.snapshot.cache: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 12,
+    "y": 57,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.snapshot.cache, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.snapshot.cache, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.ce.snapshot.cache",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.ce.snapshot.cache\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 106,
+   "type": "barchart",
+   "title": "Status code",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.http.response.status_code: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 0,
+    "y": 66,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.http.response.status_code, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.http.response.status_code, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.http.response.status_code",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.http.response.status_code\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 107,
+   "type": "barchart",
+   "title": "User",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.user.id: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+   "gridPos": {
+    "x": 12,
+    "y": 66,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "span.user.id",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "span.user.id\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "in the band",
+        "desc": true
+       },
+       {
+        "field": "everything else",
+        "desc": true
+       }
+      ]
+     }
+    },
+    {
+     "id": "limit",
+     "options": {
+      "limitField": 10
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": 0,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 108,
+   "type": "barchart",
+   "title": "Response size (bytes)",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "span.http.response.body.size: share of the spans in the band (orange) and of all other spans (gray) with each value, in power-of-two buckets (upper bounds)",
+   "gridPos": {
+    "x": 0,
+    "y": 75,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "IV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.http.response.body.size) by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "IRV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IRT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "IT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "IN",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$IRV / $IRT"
+    },
+    {
+     "refId": "OV",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.http.response.body.size) by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "OT",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+     "hide": true
+    },
+    {
+     "refId": "ORV",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OV",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "ORT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "reduce",
+     "expression": "OT",
+     "reducer": "last",
+     "hide": true
+    },
+    {
+     "refId": "OUT",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$ORV / $ORT"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "reduce",
+     "options": {
+      "mode": "seriesToRows",
+      "reducers": [
+       "lastNotNull"
+      ],
+      "labelsToFields": true
+     }
+    },
+    {
+     "id": "groupingToMatrix",
+     "options": {
+      "columnField": "Field",
+      "rowField": "__bucket",
+      "valueField": "Last *",
+      "emptyValue": "zero"
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "__bucket\\Field": "value",
+       "IN": "in the band",
+       "OUT": "everything else"
+      }
+     }
+    },
+    {
+     "id": "convertFieldType",
+     "options": {
+      "conversions": [
+       {
+        "targetField": "value",
+        "destinationType": "number"
+       }
+      ]
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "value"
+       }
+      ]
+     }
+    },
+    {
+     "id": "convertFieldType",
+     "options": {
+      "conversions": [
+       {
+        "targetField": "value",
+        "destinationType": "string"
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "regex",
+          "options": {
+           "pattern": "^\"(.*)\"$",
+           "result": {
+            "text": "$1"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "nil": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "empty",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         },
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "(not set)"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "unit",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "vertical",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    },
+    "xTickLabelMaxLength": 48,
+    "fullHighlight": false,
+    "xTickLabelRotation": -45,
+    "xTickLabelSpacing": 0
+   }
+  },
+  {
+   "id": 118,
+   "type": "row",
+   "title": "What the band has in common: browser spans (page views, API calls)",
+   "collapsed": true,
+   "gridPos": {
+    "x": 0,
+    "y": 85,
+    "w": 24,
+    "h": 1
+   },
+   "panels": [
+    {
+     "id": 110,
+     "type": "barchart",
+     "title": "Page",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.ce.page: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+     "gridPos": {
+      "x": 0,
+      "y": 86,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "span.ce.page",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "span.ce.page\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "in the band",
+          "desc": true
+         },
+         {
+          "field": "everything else",
+          "desc": true
+         }
+        ]
+       }
+      },
+      {
+       "id": "limit",
+       "options": {
+        "limitField": 10
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": 0,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 111,
+     "type": "barchart",
+     "title": "Catalog",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.ce.catalog: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+     "gridPos": {
+      "x": 12,
+      "y": 86,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.catalog, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "span.ce.catalog",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "span.ce.catalog\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "in the band",
+          "desc": true
+         },
+         {
+          "field": "everything else",
+          "desc": true
+         }
+        ]
+       }
+      },
+      {
+       "id": "limit",
+       "options": {
+        "limitField": 10
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": 0,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 112,
+     "type": "barchart",
+     "title": "Hard or soft load",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.ce.page_view.kind: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+     "gridPos": {
+      "x": 0,
+      "y": 95,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.ce.page_view.kind, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.ce.page_view.kind, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "span.ce.page_view.kind",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "span.ce.page_view.kind\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "in the band",
+          "desc": true
+         },
+         {
+          "field": "everything else",
+          "desc": true
+         }
+        ]
+       }
+      },
+      {
+       "id": "limit",
+       "options": {
+        "limitField": 10
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": 0,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 113,
+     "type": "barchart",
+     "title": "API call",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.url.template: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+     "gridPos": {
+      "x": 12,
+      "y": 95,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.url.template, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.url.template, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "span.url.template",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "span.url.template\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "in the band",
+          "desc": true
+         },
+         {
+          "field": "everything else",
+          "desc": true
+         }
+        ]
+       }
+      },
+      {
+       "id": "limit",
+       "options": {
+        "limitField": 10
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": 0,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 114,
+     "type": "barchart",
+     "title": "User",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.user.id: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+     "gridPos": {
+      "x": 0,
+      "y": 104,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (span.user.id, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "span.user.id",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "span.user.id\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "in the band",
+          "desc": true
+         },
+         {
+          "field": "everything else",
+          "desc": true
+         }
+        ]
+       }
+      },
+      {
+       "id": "limit",
+       "options": {
+        "limitField": 10
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": 0,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 115,
+     "type": "barchart",
+     "title": "Browser",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "resource.browser.name: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
+     "gridPos": {
+      "x": 12,
+      "y": 104,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.browser.name, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.browser.name, resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "resource.browser.name",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "resource.browser.name\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "in the band",
+          "desc": true
+         },
+         {
+          "field": "everything else",
+          "desc": true
+         }
+        ]
+       }
+      },
+      {
+       "id": "limit",
+       "options": {
+        "limitField": 10
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": 0,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 116,
+     "type": "barchart",
+     "title": "API calls per page",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.ce.stats.api.calls: share of the spans in the band (orange) and of all other spans (gray) with each value, in power-of-two buckets (upper bounds)",
+     "gridPos": {
+      "x": 0,
+      "y": 113,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.ce.stats.api.calls) by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.ce.stats.api.calls) by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "__bucket",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "__bucket\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "convertFieldType",
+       "options": {
+        "conversions": [
+         {
+          "targetField": "value",
+          "destinationType": "number"
+         }
+        ]
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "value"
+         }
+        ]
+       }
+      },
+      {
+       "id": "convertFieldType",
+       "options": {
+        "conversions": [
+         {
+          "targetField": "value",
+          "destinationType": "string"
+         }
+        ]
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "vertical",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": -45,
+      "xTickLabelSpacing": 0
+     }
+    },
+    {
+     "id": 117,
+     "type": "barchart",
+     "title": "DOM nodes",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "span.ce.page.dom_nodes: share of the spans in the band (orange) and of all other spans (gray) with each value, in power-of-two buckets (upper bounds)",
+     "gridPos": {
+      "x": 12,
+      "y": 113,
+      "w": 12,
+      "h": 9
+     },
+     "targets": [
+      {
+       "refId": "IV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | histogram_over_time(span.ce.page.dom_nodes) by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && ${y} >= ${lo} && ${y} <= ${hi}} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "IRV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IRT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "IT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "IN",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$IRV / $IRT"
+      },
+      {
+       "refId": "OV",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | histogram_over_time(span.ce.page.dom_nodes) by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "OT",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\" && (${y} < ${lo} || ${y} > ${hi})} | {${where}} | {${and}} | count_over_time() by (resource.service.name)",
+       "hide": true
+      },
+      {
+       "refId": "ORV",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OV",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "ORT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "reduce",
+       "expression": "OT",
+       "reducer": "last",
+       "hide": true
+      },
+      {
+       "refId": "OUT",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "math",
+       "expression": "$ORV / $ORT"
+      }
+     ],
+     "transformations": [
+      {
+       "id": "reduce",
+       "options": {
+        "mode": "seriesToRows",
+        "reducers": [
+         "lastNotNull"
+        ],
+        "labelsToFields": true
+       }
+      },
+      {
+       "id": "groupingToMatrix",
+       "options": {
+        "columnField": "Field",
+        "rowField": "__bucket",
+        "valueField": "Last *",
+        "emptyValue": "zero"
+       }
+      },
+      {
+       "id": "organize",
+       "options": {
+        "renameByName": {
+         "__bucket\\Field": "value",
+         "IN": "in the band",
+         "OUT": "everything else"
+        }
+       }
+      },
+      {
+       "id": "convertFieldType",
+       "options": {
+        "conversions": [
+         {
+          "targetField": "value",
+          "destinationType": "number"
+         }
+        ]
+       }
+      },
+      {
+       "id": "sortBy",
+       "options": {
+        "sort": [
+         {
+          "field": "value"
+         }
+        ]
+       }
+      },
+      {
+       "id": "convertFieldType",
+       "options": {
+        "conversions": [
+         {
+          "targetField": "value",
+          "destinationType": "string"
+         }
+        ]
+       }
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "value"
+        },
+        "properties": [
+         {
+          "id": "mappings",
+          "value": [
+           {
+            "type": "regex",
+            "options": {
+             "pattern": "^\"(.*)\"$",
+             "result": {
+              "text": "$1"
+             }
+            }
+           },
+           {
+            "type": "value",
+            "options": {
+             "nil": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "empty",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           },
+           {
+            "type": "special",
+            "options": {
+             "match": "null",
+             "result": {
+              "text": "(not set)"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "unit",
+          "value": "none"
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "vertical",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "legend": {
+       "showLegend": false,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      },
+      "xTickLabelMaxLength": 48,
+      "fullHighlight": false,
+      "xTickLabelRotation": -45,
+      "xTickLabelSpacing": 0
+     }
+    }
+   ]
   }
  ]
 }

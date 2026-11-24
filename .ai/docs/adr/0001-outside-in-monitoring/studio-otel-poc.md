@@ -228,8 +228,8 @@ Two ways to ask "what do these requests have in common?":
 |---|---|---|
 | Y-axis | Duration only | Any integer attribute or duration (variable **Y-axis**) |
 | Selecting | Drag a box on the heatmap (time × duration) | Type the band (**From** / **To**); drag on the heatmap to narrow the time |
-| Comparison | Bar chart per attribute: % of selection vs % of baseline, ranked by difference | Table: each attribute value's spans in / outside the band, sorted by share in the band, next to the overall share |
-| Engine | TraceQL `compare()` | TraceQL `compare()` (`{spans} \| compare({y >= from && y <= to}, 10)`) |
+| Comparison | Bar chart per attribute: % of selection vs % of baseline, ranked by difference | One histogram per attribute: for each value, % of the band's spans (orange) next to % of all other spans (gray); top 10 values for strings, power-of-two buckets for numbers |
+| Engine | TraceQL `compare()` | TraceQL `count_over_time() by (attr)` (strings) or `histogram_over_time(attr)` (numbers), for the band and for the rest, each divided by its group's total with server-side expressions |
 
 Both found the same thing on the Nov 21 run: backend requests over 1 s were course `A&S500` (Records), Golden and
 Compare (100 % of their spans), with snapshot cache misses at 67 % against 4 % overall. On the Nov 24 run, page views
@@ -237,7 +237,12 @@ whose time to ready was over 600 ms were mostly Marshall's Rules page (50 % of i
 
 ![Dashboard: page views by time to ready, band 600 ms and up](images/studio-otel/bubbleup/dashboard-page-ready.png)
 
-![Dashboard table: backend requests over 1 s](images/studio-otel/bubbleup/table-backend-over-1s.png)
+The comparison was first a table of `attribute = value` rows sorted by share in the band. The owner rejected it
+(2026-11-24): values of one attribute ended up far apart, so you couldn't see which were most common. It's now one
+histogram per attribute, as in Honeycomb's BubbleUp and the Drilldown's Comparison tab. Backend requests over 1 s (Nov 24
+run): the band is all Golden, course pages and Compare, all Marshall, all snapshot-cache hits.
+
+![One histogram per attribute: in the band (orange) against everything else (gray), backend requests over 1 s](images/studio-otel/bubbleup/attribute-histograms.png)
 
 ![Traces Drilldown: drag a box on the duration heatmap, then Comparison](images/studio-otel/bubbleup/traces-drilldown-comparison.png)
 
@@ -253,8 +258,12 @@ Limits:
 - It shows at most 1,000 traces (100 spans each), so narrow the time range when it's busy.
 - Selected attributes come back as text and are converted to numbers in the panel.
 - Float attributes can't be the y-axis (TraceQL metrics skip them).
-- The counts `compare()` returns are only good as ratios: they come back up to 2× the span count.
-- Values seen on fewer than 3 spans in the band are hidden, and so are per-span IDs and numbers.
+- The attributes are a fixed list per span type (`BACKEND_ATTRS`, `BROWSER_ATTRS` in `bubbleup.py`), in two rows;
+  the browser row starts collapsed. An attribute that isn't on the chosen spans shows "No data".
+- Each histogram runs four TraceQL queries (values and total, in and out of the band), so the page is heavy on a
+  busy range.
+- The total has to be grouped by `resource.service.name` too: TraceQL labels an ungrouped count `__name__`, and the
+  division can only pair series whose labels are a subset of each other's.
 
 **Honeycomb-style filters and Group by** (added 2026-11-24): two filter bars, **Where** and **And**, narrow every panel.
 They are Grafana ad hoc filters on the Tempo data source: click one, type, and it suggests attribute names from Tempo,
