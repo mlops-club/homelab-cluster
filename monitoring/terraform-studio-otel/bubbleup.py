@@ -40,6 +40,17 @@ NOISE = r"([^=]+=[-0-9.e+]+|.*sha256.*|.*(navigation_id|navigation_start_time|cl
 MIN_IN_BAND = 3  # a value seen on one or two spans in the band says little
 
 
+# the string attributes shown in a dot's tooltip, plus the y-axis attribute (duration is always on a span row)
+SELECT = "${y}, span.ce.page, span.ce.catalog, span.user.id, span.http.route, span.ce.course.key"
+EXPLORE = ('{"datasource":"grafanacloud-traces","queries":[{"refId":"A","queryType":"traceql",'
+           '"query":"${__data.fields.traceIdHidden}"}],"range":{"from":"${__from}","to":"${__to}"}}')
+
+
+def search(ref, traceql):
+    return {"refId": ref, "datasource": TEMPO, "queryType": "traceql", "tableType": "spans",
+            "limit": 1000, "spss": 100, "query": traceql}
+
+
 def custom(name, label, options, current):
     query = ",".join(f"{k} : {v}" for k, v in options)
     opts = [{"text": k, "value": v, "selected": v == current} for k, v in options]
@@ -60,7 +71,7 @@ q = lambda traceql, kind="range": {"refId": "A", "datasource": TEMPO, "queryType
 
 intro = """**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it
 (**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows
-every span over time; the table lists each attribute value with how many of its spans are **in the band** and how many
+every span over time as counts; the dot chart under it shows every span on its own (click one for its trace); the table lists each attribute value with how many of its spans are **in the band** and how many
 are **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well
 above it is what the selection has in common. To narrow the selection in time, drag on the heatmap (the comparison
 then covers that window only). For a box drawn freehand on a duration heatmap, use
@@ -99,11 +110,35 @@ panels = [
                  {"refId": "C", "datasource": EXPR, "type": "math", "expression": "$RA / $RB"}],
      "options": {"colorMode": "none", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 1, "noValue": "–"}}},
+    {"id": 7, "type": "xychart", "title": "Every span: ${y:text} over time. Click a dot, then a link, for its trace",
+     "datasource": TEMPO,
+     "description": "TraceQL search, one dot per span (up to 1000 traces, 100 spans each: on a busy range not every span "
+                    "is shown, so narrow the time range). Duration is shown in time units. The Tempo panel merges every "
+                    "query into one frame, so spans in the band cannot be coloured separately: use the counts and the "
+                    "table below for the band",
+     "gridPos": {"x": 0, "y": 15, "w": 24, "h": 14},
+     "targets": [search("A", f"{base} | select({SELECT})")],
+     # selected attributes arrive as text: make the y-axis candidates numbers. A span row always ends with duration,
+     # so the first number on a row is the y-axis attribute when one is selected, and duration otherwise
+     "transformations": [{"id": "convertFieldType", "options": {"conversions": [
+         {"targetField": v.removeprefix("span."), "destinationType": "number"} for _, v in Y if v != "duration"]}}],
+     "fieldConfig": {
+         "defaults": {"unit": "short", "custom": {"show": "points", "pointSize": {"fixed": 6}, "pointShape": "circle",
+                                                  "fillOpacity": 60},
+                      "color": {"mode": "fixed", "fixedColor": "orange"},
+                      "links": [{"title": "Open this trace", "url": "/d/studio-otel-trace?var-trace=${__data.fields.traceIdHidden}&${__url_time_range}"},
+                                {"title": "Open in Explore", "url": "/explore?left=" + EXPLORE}]},
+         "overrides": [{"matcher": {"id": "byName", "options": "duration"}, "properties": [{"id": "unit", "value": "ns"}]}]},
+     "options": {"mapping": "manual",
+                 "series": [{"frame": {"matcher": {"id": "byIndex", "options": 0}}, "name": {"fixed": "spans"},
+                             "x": {"matcher": {"id": "byName", "options": "time"}},
+                             "y": {"matcher": {"id": "byType", "options": "number"}}}],
+                 "tooltip": {"mode": "single"}, "legend": {"showLegend": False, "displayMode": "list", "placement": "bottom"}}},
     {"id": 6, "type": "table", "title": "What the band has in common: attribute values by share of their spans in the band",
      "datasource": TEMPO,
      "description": "TraceQL compare(): for each attribute value (top 10 per attribute), spans in the band and outside it. "
                     "Share = in band / (in band + outside). Per-span IDs are hidden",
-     "gridPos": {"x": 0, "y": 15, "w": 24, "h": 16},
+     "gridPos": {"x": 0, "y": 29, "w": 24, "h": 16},
      "targets": [q(f"{base} | compare({{{band}}}, 10)", "instant")],
      "transformations": [
          {"id": "seriesToRows", "options": {}},

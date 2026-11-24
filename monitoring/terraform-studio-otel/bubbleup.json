@@ -134,7 +134,7 @@
    },
    "options": {
     "mode": "markdown",
-    "content": "**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it\n(**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows\nevery span over time; the table lists each attribute value with how many of its spans are **in the band** and how many\nare **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well\nabove it is what the selection has in common. To narrow the selection in time, drag on the heatmap (the comparison\nthen covers that window only). For a box drawn freehand on a duration heatmap, use\n[Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."
+    "content": "**Compare a selection** (BubbleUp-style). Choose **Spans**, the **Y-axis** attribute and a band on it\n(**From** / **To**; duration takes units such as `500ms` or `2s`, other attributes plain numbers). The heatmap shows\nevery span over time as counts; the dot chart under it shows every span on its own (click one for its trace); the table lists each attribute value with how many of its spans are **in the band** and how many\nare **outside it**, sorted by the share in the band. Compare that share with the overall share on the right: a value well\nabove it is what the selection has in common. To narrow the selection in time, drag on the heatmap (the comparison\nthen covers that window only). For a box drawn freehand on a duration heatmap, use\n[Traces Drilldown](/a/grafana-exploretraces-app/explore) → Duration → select a region → Comparison."
    }
   },
   {
@@ -375,6 +375,150 @@
    }
   },
   {
+   "id": 7,
+   "type": "xychart",
+   "title": "Every span: ${y:text} over time. Click a dot, then a link, for its trace",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "TraceQL search, one dot per span (up to 1000 traces, 100 spans each: on a busy range not every span is shown, so narrow the time range). Duration is shown in time units. The Tempo panel merges every query into one frame, so spans in the band cannot be coloured separately: use the counts and the table below for the band",
+   "gridPos": {
+    "x": 0,
+    "y": 15,
+    "w": 24,
+    "h": 14
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "tableType": "spans",
+     "limit": 1000,
+     "spss": 100,
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | select(${y}, span.ce.page, span.ce.catalog, span.user.id, span.http.route, span.ce.course.key)"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "convertFieldType",
+     "options": {
+      "conversions": [
+       {
+        "targetField": "ce.page.ready.duration_ms",
+        "destinationType": "number"
+       },
+       {
+        "targetField": "ce.stats.api.slowest_ms",
+        "destinationType": "number"
+       },
+       {
+        "targetField": "ce.page.dom_nodes",
+        "destinationType": "number"
+       },
+       {
+        "targetField": "lcp.value",
+        "destinationType": "number"
+       },
+       {
+        "targetField": "http.response.body.size",
+        "destinationType": "number"
+       },
+       {
+        "targetField": "ce.snapshot.rows",
+        "destinationType": "number"
+       },
+       {
+        "targetField": "ce.rows.total",
+        "destinationType": "number"
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "show": "points",
+      "pointSize": {
+       "fixed": 6
+      },
+      "pointShape": "circle",
+      "fillOpacity": 60
+     },
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "orange"
+     },
+     "links": [
+      {
+       "title": "Open this trace",
+       "url": "/d/studio-otel-trace?var-trace=${__data.fields.traceIdHidden}&${__url_time_range}"
+      },
+      {
+       "title": "Open in Explore",
+       "url": "/explore?left={\"datasource\":\"grafanacloud-traces\",\"queries\":[{\"refId\":\"A\",\"queryType\":\"traceql\",\"query\":\"${__data.fields.traceIdHidden}\"}],\"range\":{\"from\":\"${__from}\",\"to\":\"${__to}\"}}"
+      }
+     ]
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "duration"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "ns"
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "mapping": "manual",
+    "series": [
+     {
+      "frame": {
+       "matcher": {
+        "id": "byIndex",
+        "options": 0
+       }
+      },
+      "name": {
+       "fixed": "spans"
+      },
+      "x": {
+       "matcher": {
+        "id": "byName",
+        "options": "time"
+       }
+      },
+      "y": {
+       "matcher": {
+        "id": "byType",
+        "options": "number"
+       }
+      }
+     }
+    ],
+    "tooltip": {
+     "mode": "single"
+    },
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
    "id": 6,
    "type": "table",
    "title": "What the band has in common: attribute values by share of their spans in the band",
@@ -385,7 +529,7 @@
    "description": "TraceQL compare(): for each attribute value (top 10 per attribute), spans in the band and outside it. Share = in band / (in band + outside). Per-span IDs are hidden",
    "gridPos": {
     "x": 0,
-    "y": 15,
+    "y": 29,
     "w": 24,
     "h": 16
    },

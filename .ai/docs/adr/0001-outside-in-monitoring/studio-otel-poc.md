@@ -241,7 +241,17 @@ whose time to ready was over 600 ms were mostly Marshall's Rules page (50 % of i
 
 ![Traces Drilldown: drag a box on the duration heatmap, then Comparison](images/studio-otel/bubbleup/traces-drilldown-comparison.png)
 
+**Every span as a dot** (added the same day): under the heatmap, an XY chart plots one dot per span (TraceQL search,
+`tableType: spans`) with the same y-axis; clicking a dot offers "Open this trace" and "Open in Explore". The heatmap
+gives the shape, the dots give the individual spans behind it.
+
+![One dot per span: time to ready of page views (top), duration of backend requests (bottom)](images/studio-otel/bubbleup/every-span-dots.png)
+
 Limits:
+- The dot chart can't colour the band's dots separately. The Tempo panel merges both queries into one frame, and the
+  XY chart only picks frames by position.
+- It shows at most 1,000 traces (100 spans each), so narrow the time range when it's busy.
+- Selected attributes come back as text and are converted to numbers in the panel.
 - Float attributes can't be the y-axis (TraceQL metrics skip them).
 - The counts `compare()` returns are only good as ratios: they come back up to 2× the span count.
 - Values seen on fewer than 3 spans in the band are hidden, and so are per-span IDs and numbers.
