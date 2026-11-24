@@ -244,6 +244,20 @@ run): the band is all Golden, course pages and Compare, all Marshall, all snapsh
 
 ![One histogram per attribute: in the band (orange) against everything else (gray), backend requests over 1 s](images/studio-otel/bubbleup/attribute-histograms.png)
 
+**Most different first** (added the same day, at the owner's request): BubbleUp's point is that the attributes that
+differ most between the selection and the rest bubble to the top, so you don't read every chart. Grafana can't reorder
+panels by their data, so one panel at the top of each row does it: TraceQL `compare()` returns every attribute value's
+count in and outside the band, and a server-side SQL expression turns counts into shares, scores each attribute by its
+biggest gap, and keeps the top 5 attributes (top 4 values each), biggest gap first. For backend requests over 1 s:
+Course (A&S500 is 100 % of the band, 0 % of the rest), then Catalog, Page, Route; User comes last (no real difference).
+The per-attribute histograms below it stay, in a fixed order, for detail.
+
+Limits: the SQL lists fixed attributes per span type (`RANK_BACKEND`, `RANK_BROWSER`), and it fails (the panel shows an
+error) if one of them never occurs in the time range, so the lists hold only attributes that kind of span always
+carries. The bar chart doesn't draw with the legend on top (Grafana 13.4), so it sits at the bottom.
+
+![Most different first: the attributes that best explain the band, ranked](images/studio-otel/bubbleup/bubbleup-ranking.png)
+
 ![Traces Drilldown: drag a box on the duration heatmap, then Comparison](images/studio-otel/bubbleup/traces-drilldown-comparison.png)
 
 **Every span as a dot** (added the same day): under the heatmap, an XY chart plots one dot per span (TraceQL search,

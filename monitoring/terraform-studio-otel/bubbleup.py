@@ -241,16 +241,74 @@ def attr_panel(attr, kind, title, x, y, w=12, h=9):
                         "xTickLabelRotation": 0 if kind == "str" else -45, "xTickLabelSpacing": 0}}
 
 
-def attr_section(title, attrs, y, collapsed):
-    ps = [attr_panel(a, k, t, 12 * (i % 2), y + 1 + 9 * (i // 2)) for i, (a, k, t) in enumerate(attrs)]
+# -- BubbleUp ranking: every attribute's values, the attributes that differ most first ----------------------------
+# compare() returns one column per attribute; a server-side SQL expression unpivots the listed ones, turns counts into
+# shares of the band and of everything else, scores each attribute by its biggest gap, and keeps the top attributes
+# (top values each), biggest gap first. SQL fails on a column that isn't there, so list only attributes this kind of
+# span always carries.
+RANK_BACKEND = [("Route", "span.http.route"), ("Page", "span.ce.page"), ("Catalog", "span.ce.catalog"),
+                ("Course", "span.ce.course.key"), ("Status", "span.http.response.status_code"), ("User", "span.user.id")]
+RANK_BROWSER = [("Page", "span.ce.page"), ("Catalog", "span.ce.catalog"), ("Hard or soft", "span.ce.page_view.kind"),
+                ("Entry page", "span.ce.entry_page"), ("User", "span.user.id")]
+
+
+def ranking_sql(attrs, top_attrs=5, per_attr=4):
+    rows = "\n UNION ALL ".join(
+        f"SELECT '{lab}' AS attr, `{col}` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `{col}` IS NOT NULL"
+        for lab, col in attrs)
+    return f"""WITH r AS ({rows}),
+tot AS (SELECT attr, t, n AS total FROM r WHERE t IN ('"baseline_total"', '"selection_total"') AND val = '"nil"'),
+v AS (SELECT attr, val, SUM(CASE WHEN t = '"selection"' THEN n ELSE 0 END) AS sel,
+             SUM(CASE WHEN t = '"baseline"' THEN n ELSE 0 END) AS base
+      FROM r WHERE t IN ('"selection"', '"baseline"') GROUP BY attr, val),
+s AS (SELECT v.attr, v.val, v.sel / ts.total AS in_band, v.base / tb.total AS outside FROM v
+      JOIN tot ts ON ts.attr = v.attr AND ts.t = '"selection_total"'
+      JOIN tot tb ON tb.attr = v.attr AND tb.t = '"baseline_total"'),
+score AS (SELECT attr, MAX(ABS(in_band - outside)) AS gap FROM s GROUP BY attr),
+ranked AS (SELECT s.attr, s.val, s.in_band, s.outside, score.gap,
+           DENSE_RANK() OVER (ORDER BY score.gap DESC, s.attr) AS attr_rank,
+           ROW_NUMBER() OVER (PARTITION BY s.attr ORDER BY ABS(s.in_band - s.outside) DESC) AS val_rank
+           FROM s JOIN score ON score.attr = s.attr)
+SELECT CONCAT(attr, ':  ', CASE WHEN val = '"nil"' THEN '(not set)' ELSE REPLACE(val, '"', '') END) AS value,
+       in_band AS `in the band`, outside AS `everything else`
+FROM ranked WHERE attr_rank <= {top_attrs} AND val_rank <= {per_attr}
+ORDER BY gap DESC, attr, ABS(in_band - outside) DESC"""
+
+
+def ranking_panel(attrs, y, title):
+    return {"id": next(_ids), "type": "barchart", "title": title, "datasource": TEMPO,
+            "description": "BubbleUp: for each attribute, the share of spans in the band (orange) and of everything else "
+                           "(gray) per value. Attributes are ordered by their biggest gap, so the ones that best explain "
+                           "the band come first (top 5 attributes, top 4 values each). Built from TraceQL compare() and a "
+                           "server-side SQL expression",
+            "gridPos": {"x": 0, "y": y, "w": 24, "h": 13},
+            "targets": [dict(q(f"{base} | compare({{{band}}}, 10)", "instant"), refId="A", hide=True),
+                        {"refId": "B", "datasource": EXPR, "type": "sql", "expression": ranking_sql(attrs)}],
+            "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 0, "min": 0, "max": 1,
+                                         "custom": {"fillOpacity": 85, "lineWidth": 0}},
+                            "overrides": [
+                                {"matcher": {"id": "byName", "options": "in the band"},
+                                 "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": IN_COLOR}}]},
+                                {"matcher": {"id": "byName", "options": "everything else"},
+                                 "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": OUT_COLOR}}]}]},
+            "options": {"orientation": "horizontal", "xField": "value", "groupWidth": 0.75, "barWidth": 0.9,
+                        "showValue": "never", "stacking": "none", "xTickLabelMaxLength": 60,
+                        "legend": {"showLegend": True, "displayMode": "list", "placement": "bottom"},
+                        "tooltip": {"mode": "multi"}}}
+
+
+def attr_section(title, attrs, y, collapsed, rank=None):
+    top = [ranking_panel(rank, y + 1, "Most different first: each attribute's values, the attribute with the biggest gap on top")] if rank else []
+    y0 = y + 1 + (13 if rank else 0)
+    ps = top + [attr_panel(a, k, t, 12 * (i % 2), y0 + 9 * (i // 2)) for i, (a, k, t) in enumerate(attrs)]
     row = {"id": next(_ids), "type": "row", "title": title, "collapsed": collapsed, "gridPos": {"x": 0, "y": y, "w": 24, "h": 1},
            "panels": ps if collapsed else []}
     return [row] + ([] if collapsed else ps)
 
 
 panels += attr_section("What the band has in common: backend requests (orange = in the band, gray = everything else)",
-                       BACKEND_ATTRS, 38, False)
-panels += attr_section("What the band has in common: browser spans (page views, API calls)", BROWSER_ATTRS, 85, True)
+                       BACKEND_ATTRS, 38, False, RANK_BACKEND)
+panels += attr_section("What the band has in common: page views (choose Spans: Page views)", BROWSER_ATTRS, 98, True, RANK_BROWSER)
 
 dash = {
     "title": "Studio OTel POC: compare a selection",

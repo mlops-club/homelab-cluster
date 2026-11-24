@@ -741,7 +741,7 @@
    }
   },
   {
-   "id": 109,
+   "id": 110,
    "type": "row",
    "title": "What the band has in common: backend requests (orange = in the band, gray = everything else)",
    "collapsed": false,
@@ -756,6 +756,105 @@
   {
    "id": 100,
    "type": "barchart",
+   "title": "Most different first: each attribute's values, the attribute with the biggest gap on top",
+   "datasource": {
+    "type": "tempo",
+    "uid": "grafanacloud-traces"
+   },
+   "description": "BubbleUp: for each attribute, the share of spans in the band (orange) and of everything else (gray) per value. Attributes are ordered by their biggest gap, so the ones that best explain the band come first (top 5 attributes, top 4 values each). Built from TraceQL compare() and a server-side SQL expression",
+   "gridPos": {
+    "x": 0,
+    "y": 39,
+    "w": 24,
+    "h": 13
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "queryType": "traceql",
+     "metricsQueryType": "instant",
+     "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)",
+     "hide": true
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "sql",
+     "expression": "WITH r AS (SELECT 'Route' AS attr, `span.http.route` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.http.route` IS NOT NULL\n UNION ALL SELECT 'Page' AS attr, `span.ce.page` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.page` IS NOT NULL\n UNION ALL SELECT 'Catalog' AS attr, `span.ce.catalog` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.catalog` IS NOT NULL\n UNION ALL SELECT 'Course' AS attr, `span.ce.course.key` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.course.key` IS NOT NULL\n UNION ALL SELECT 'Status' AS attr, `span.http.response.status_code` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.http.response.status_code` IS NOT NULL\n UNION ALL SELECT 'User' AS attr, `span.user.id` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.user.id` IS NOT NULL),\ntot AS (SELECT attr, t, n AS total FROM r WHERE t IN ('\"baseline_total\"', '\"selection_total\"') AND val = '\"nil\"'),\nv AS (SELECT attr, val, SUM(CASE WHEN t = '\"selection\"' THEN n ELSE 0 END) AS sel,\n             SUM(CASE WHEN t = '\"baseline\"' THEN n ELSE 0 END) AS base\n      FROM r WHERE t IN ('\"selection\"', '\"baseline\"') GROUP BY attr, val),\ns AS (SELECT v.attr, v.val, v.sel / ts.total AS in_band, v.base / tb.total AS outside FROM v\n      JOIN tot ts ON ts.attr = v.attr AND ts.t = '\"selection_total\"'\n      JOIN tot tb ON tb.attr = v.attr AND tb.t = '\"baseline_total\"'),\nscore AS (SELECT attr, MAX(ABS(in_band - outside)) AS gap FROM s GROUP BY attr),\nranked AS (SELECT s.attr, s.val, s.in_band, s.outside, score.gap,\n           DENSE_RANK() OVER (ORDER BY score.gap DESC, s.attr) AS attr_rank,\n           ROW_NUMBER() OVER (PARTITION BY s.attr ORDER BY ABS(s.in_band - s.outside) DESC) AS val_rank\n           FROM s JOIN score ON score.attr = s.attr)\nSELECT CONCAT(attr, ':  ', CASE WHEN val = '\"nil\"' THEN '(not set)' ELSE REPLACE(val, '\"', '') END) AS value,\n       in_band AS `in the band`, outside AS `everything else`\nFROM ranked WHERE attr_rank <= 5 AND val_rank <= 4\nORDER BY gap DESC, attr, ABS(in_band - outside) DESC"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 0,
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "fillOpacity": 85,
+      "lineWidth": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "in the band"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "everything else"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#94a3b8"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "orientation": "horizontal",
+    "xField": "value",
+    "groupWidth": 0.75,
+    "barWidth": 0.9,
+    "showValue": "never",
+    "stacking": "none",
+    "xTickLabelMaxLength": 60,
+    "legend": {
+     "showLegend": true,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 101,
+   "type": "barchart",
    "title": "Route",
    "datasource": {
     "type": "tempo",
@@ -764,7 +863,7 @@
    "description": "span.http.route: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 0,
-    "y": 39,
+    "y": 52,
     "w": 12,
     "h": 9
    },
@@ -1046,7 +1145,7 @@
    }
   },
   {
-   "id": 101,
+   "id": 102,
    "type": "barchart",
    "title": "Page (from the browser)",
    "datasource": {
@@ -1056,7 +1155,7 @@
    "description": "span.ce.page: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 12,
-    "y": 39,
+    "y": 52,
     "w": 12,
     "h": 9
    },
@@ -1338,7 +1437,7 @@
    }
   },
   {
-   "id": 102,
+   "id": 103,
    "type": "barchart",
    "title": "Catalog",
    "datasource": {
@@ -1348,7 +1447,7 @@
    "description": "span.ce.catalog: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 0,
-    "y": 48,
+    "y": 61,
     "w": 12,
     "h": 9
    },
@@ -1630,7 +1729,7 @@
    }
   },
   {
-   "id": 103,
+   "id": 104,
    "type": "barchart",
    "title": "Course",
    "datasource": {
@@ -1640,7 +1739,7 @@
    "description": "span.ce.course.key: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 12,
-    "y": 48,
+    "y": 61,
     "w": 12,
     "h": 9
    },
@@ -1922,7 +2021,7 @@
    }
   },
   {
-   "id": 104,
+   "id": 105,
    "type": "barchart",
    "title": "Rule",
    "datasource": {
@@ -1932,7 +2031,7 @@
    "description": "span.ce.rule.id: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 0,
-    "y": 57,
+    "y": 70,
     "w": 12,
     "h": 9
    },
@@ -2214,7 +2313,7 @@
    }
   },
   {
-   "id": 105,
+   "id": 106,
    "type": "barchart",
    "title": "Snapshot cache",
    "datasource": {
@@ -2224,7 +2323,7 @@
    "description": "span.ce.snapshot.cache: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 12,
-    "y": 57,
+    "y": 70,
     "w": 12,
     "h": 9
    },
@@ -2506,7 +2605,7 @@
    }
   },
   {
-   "id": 106,
+   "id": 107,
    "type": "barchart",
    "title": "Status code",
    "datasource": {
@@ -2516,7 +2615,7 @@
    "description": "span.http.response.status_code: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 0,
-    "y": 66,
+    "y": 79,
     "w": 12,
     "h": 9
    },
@@ -2798,7 +2897,7 @@
    }
   },
   {
-   "id": 107,
+   "id": 108,
    "type": "barchart",
    "title": "User",
    "datasource": {
@@ -2808,7 +2907,7 @@
    "description": "span.user.id: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
    "gridPos": {
     "x": 12,
-    "y": 66,
+    "y": 79,
     "w": 12,
     "h": 9
    },
@@ -3090,7 +3189,7 @@
    }
   },
   {
-   "id": 108,
+   "id": 109,
    "type": "barchart",
    "title": "Response size (bytes)",
    "datasource": {
@@ -3100,7 +3199,7 @@
    "description": "span.http.response.body.size: share of the spans in the band (orange) and of all other spans (gray) with each value, in power-of-two buckets (upper bounds)",
    "gridPos": {
     "x": 0,
-    "y": 75,
+    "y": 88,
     "w": 12,
     "h": 9
    },
@@ -3393,19 +3492,118 @@
    }
   },
   {
-   "id": 118,
+   "id": 120,
    "type": "row",
-   "title": "What the band has in common: browser spans (page views, API calls)",
+   "title": "What the band has in common: page views (choose Spans: Page views)",
    "collapsed": true,
    "gridPos": {
     "x": 0,
-    "y": 85,
+    "y": 98,
     "w": 24,
     "h": 1
    },
    "panels": [
     {
-     "id": 110,
+     "id": 111,
+     "type": "barchart",
+     "title": "Most different first: each attribute's values, the attribute with the biggest gap on top",
+     "datasource": {
+      "type": "tempo",
+      "uid": "grafanacloud-traces"
+     },
+     "description": "BubbleUp: for each attribute, the share of spans in the band (orange) and of everything else (gray) per value. Attributes are ordered by their biggest gap, so the ones that best explain the band come first (top 5 attributes, top 4 values each). Built from TraceQL compare() and a server-side SQL expression",
+     "gridPos": {
+      "x": 0,
+      "y": 99,
+      "w": 24,
+      "h": 13
+     },
+     "targets": [
+      {
+       "refId": "A",
+       "datasource": {
+        "type": "tempo",
+        "uid": "grafanacloud-traces"
+       },
+       "queryType": "traceql",
+       "metricsQueryType": "instant",
+       "query": "{${spans} && resource.deployment.environment.name=\"otel-poc\"} | {${where}} | {${and}} | compare({${y} >= ${lo} && ${y} <= ${hi}}, 10)",
+       "hide": true
+      },
+      {
+       "refId": "B",
+       "datasource": {
+        "type": "__expr__",
+        "uid": "__expr__"
+       },
+       "type": "sql",
+       "expression": "WITH r AS (SELECT 'Page' AS attr, `span.ce.page` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.page` IS NOT NULL\n UNION ALL SELECT 'Catalog' AS attr, `span.ce.catalog` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.catalog` IS NOT NULL\n UNION ALL SELECT 'Hard or soft' AS attr, `span.ce.page_view.kind` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.page_view.kind` IS NOT NULL\n UNION ALL SELECT 'Entry page' AS attr, `span.ce.entry_page` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.ce.entry_page` IS NOT NULL\n UNION ALL SELECT 'User' AS attr, `span.user.id` AS val, __meta_type AS t, __value__ AS n FROM A WHERE `span.user.id` IS NOT NULL),\ntot AS (SELECT attr, t, n AS total FROM r WHERE t IN ('\"baseline_total\"', '\"selection_total\"') AND val = '\"nil\"'),\nv AS (SELECT attr, val, SUM(CASE WHEN t = '\"selection\"' THEN n ELSE 0 END) AS sel,\n             SUM(CASE WHEN t = '\"baseline\"' THEN n ELSE 0 END) AS base\n      FROM r WHERE t IN ('\"selection\"', '\"baseline\"') GROUP BY attr, val),\ns AS (SELECT v.attr, v.val, v.sel / ts.total AS in_band, v.base / tb.total AS outside FROM v\n      JOIN tot ts ON ts.attr = v.attr AND ts.t = '\"selection_total\"'\n      JOIN tot tb ON tb.attr = v.attr AND tb.t = '\"baseline_total\"'),\nscore AS (SELECT attr, MAX(ABS(in_band - outside)) AS gap FROM s GROUP BY attr),\nranked AS (SELECT s.attr, s.val, s.in_band, s.outside, score.gap,\n           DENSE_RANK() OVER (ORDER BY score.gap DESC, s.attr) AS attr_rank,\n           ROW_NUMBER() OVER (PARTITION BY s.attr ORDER BY ABS(s.in_band - s.outside) DESC) AS val_rank\n           FROM s JOIN score ON score.attr = s.attr)\nSELECT CONCAT(attr, ':  ', CASE WHEN val = '\"nil\"' THEN '(not set)' ELSE REPLACE(val, '\"', '') END) AS value,\n       in_band AS `in the band`, outside AS `everything else`\nFROM ranked WHERE attr_rank <= 5 AND val_rank <= 4\nORDER BY gap DESC, attr, ABS(in_band - outside) DESC"
+      }
+     ],
+     "fieldConfig": {
+      "defaults": {
+       "unit": "percentunit",
+       "decimals": 0,
+       "min": 0,
+       "max": 1,
+       "custom": {
+        "fillOpacity": 85,
+        "lineWidth": 0
+       }
+      },
+      "overrides": [
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "in the band"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "orange"
+          }
+         }
+        ]
+       },
+       {
+        "matcher": {
+         "id": "byName",
+         "options": "everything else"
+        },
+        "properties": [
+         {
+          "id": "color",
+          "value": {
+           "mode": "fixed",
+           "fixedColor": "#94a3b8"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     "options": {
+      "orientation": "horizontal",
+      "xField": "value",
+      "groupWidth": 0.75,
+      "barWidth": 0.9,
+      "showValue": "never",
+      "stacking": "none",
+      "xTickLabelMaxLength": 60,
+      "legend": {
+       "showLegend": true,
+       "displayMode": "list",
+       "placement": "bottom"
+      },
+      "tooltip": {
+       "mode": "multi"
+      }
+     }
+    },
+    {
+     "id": 112,
      "type": "barchart",
      "title": "Page",
      "datasource": {
@@ -3415,7 +3613,7 @@
      "description": "span.ce.page: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
      "gridPos": {
       "x": 0,
-      "y": 86,
+      "y": 112,
       "w": 12,
       "h": 9
      },
@@ -3697,7 +3895,7 @@
      }
     },
     {
-     "id": 111,
+     "id": 113,
      "type": "barchart",
      "title": "Catalog",
      "datasource": {
@@ -3707,7 +3905,7 @@
      "description": "span.ce.catalog: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
      "gridPos": {
       "x": 12,
-      "y": 86,
+      "y": 112,
       "w": 12,
       "h": 9
      },
@@ -3989,7 +4187,7 @@
      }
     },
     {
-     "id": 112,
+     "id": 114,
      "type": "barchart",
      "title": "Hard or soft load",
      "datasource": {
@@ -3999,7 +4197,7 @@
      "description": "span.ce.page_view.kind: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
      "gridPos": {
       "x": 0,
-      "y": 95,
+      "y": 121,
       "w": 12,
       "h": 9
      },
@@ -4281,7 +4479,7 @@
      }
     },
     {
-     "id": 113,
+     "id": 115,
      "type": "barchart",
      "title": "API call",
      "datasource": {
@@ -4291,7 +4489,7 @@
      "description": "span.url.template: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
      "gridPos": {
       "x": 12,
-      "y": 95,
+      "y": 121,
       "w": 12,
       "h": 9
      },
@@ -4573,7 +4771,7 @@
      }
     },
     {
-     "id": 114,
+     "id": 116,
      "type": "barchart",
      "title": "User",
      "datasource": {
@@ -4583,7 +4781,7 @@
      "description": "span.user.id: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
      "gridPos": {
       "x": 0,
-      "y": 104,
+      "y": 130,
       "w": 12,
       "h": 9
      },
@@ -4865,7 +5063,7 @@
      }
     },
     {
-     "id": 115,
+     "id": 117,
      "type": "barchart",
      "title": "Browser",
      "datasource": {
@@ -4875,7 +5073,7 @@
      "description": "resource.browser.name: share of the spans in the band (orange) and of all other spans (gray) with each value (top 10)",
      "gridPos": {
       "x": 12,
-      "y": 104,
+      "y": 130,
       "w": 12,
       "h": 9
      },
@@ -5157,7 +5355,7 @@
      }
     },
     {
-     "id": 116,
+     "id": 118,
      "type": "barchart",
      "title": "API calls per page",
      "datasource": {
@@ -5167,7 +5365,7 @@
      "description": "span.ce.stats.api.calls: share of the spans in the band (orange) and of all other spans (gray) with each value, in power-of-two buckets (upper bounds)",
      "gridPos": {
       "x": 0,
-      "y": 113,
+      "y": 139,
       "w": 12,
       "h": 9
      },
@@ -5460,7 +5658,7 @@
      }
     },
     {
-     "id": 117,
+     "id": 119,
      "type": "barchart",
      "title": "DOM nodes",
      "datasource": {
@@ -5470,7 +5668,7 @@
      "description": "span.ce.page.dom_nodes: share of the spans in the band (orange) and of all other spans (gray) with each value, in power-of-two buckets (upper bounds)",
      "gridPos": {
       "x": 12,
-      "y": 113,
+      "y": 139,
       "w": 12,
       "h": 9
      },
