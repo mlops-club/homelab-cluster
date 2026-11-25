@@ -35,13 +35,19 @@ Y = [
     ("Response size (bytes)", "span.http.response.body.size"),
     ("Snapshot rows", "span.ce.snapshot.rows"),
     ("Rows total", "span.ce.rows.total"),
+    ("Records in the catalog and class", "span.ce.catalog.records"),
+    ("Matched values in the extraction", "span.ce.snapshot.matches"),
+    ("Rule row builds", "span.ce.stats.rows.builds"),
+    ("GC pauses (ms)", "span.ce.stats.gc.duration_ms"),
+    ("Process CPU while it ran (ms)", "span.ce.process.cpu.duration_ms"),
+    ("Azure Blob Storage time (ms)", "span.ce.stats.storage.azure.duration_ms"),
 ]
 # attributes that are unique per span or per page load: they never explain a selection
 NOISE = r"([^=]+=[-0-9.e+]+|.*sha256.*|.*(navigation_id|navigation_start_time|client\.port|page_view\.id|session\.id|\.delta|_time\b|_time=|deployment\.id|pipeline\.run\.id|SampleRate|instrumentation:|ce\.page\.stem).*)"
 
 MIN_IN_BAND = 3
 # attributes worth grouping by (low cardinality); the Group by box also takes any attribute typed in
-GROUP_BY = [(a, a) for a in ("span.ce.page", "span.ce.catalog", "span.http.route", "name", "span.user.id",
+GROUP_BY = [(a, a) for a in ("span.ce.page", "span.ce.catalog", "span.ce.class", "span.http.route", "name", "span.user.id",
                               "span.ce.request.type", "span.http.response.status_code", "span.ce.rule.id",
                               "span.ce.page_view.kind", "resource.browser.name", "status")]  # a value seen on one or two spans in the band says little
 
@@ -179,7 +185,17 @@ BACKEND_ATTRS = [("span.http.route", "str", "Route"), ("span.ce.page", "str", "P
                  ("span.ce.catalog", "str", "Catalog"), ("span.ce.course.key", "str", "Course"),
                  ("span.ce.rule.id", "str", "Rule"), ("span.ce.snapshot.cache", "str", "Snapshot cache"),
                  ("span.http.response.status_code", "str", "Status code"), ("span.user.id", "str", "User"),
-                 ("span.http.response.body.size", "num", "Response size (bytes)")]
+                 ("span.http.response.body.size", "num", "Response size (bytes)"),
+                 ("span.ce.class", "str", "Class"),
+                 ("span.ce.catalog.records", "num", "Records in the catalog and class"),
+                 ("span.ce.snapshot.matches", "num", "Matched values in the extraction"),
+                 ("span.ce.annotations.events", "num", "Annotation events"),
+                 ("span.ce.stats.rows.builds", "num", "Rule row builds (per-rule cache misses)"),
+                 ("span.ce.stats.rule_cache.evictions", "num", "Per-rule cache evictions"),
+                 ("span.ce.stats.gc.duration_ms", "num", "GC pauses (ms)"),
+                 ("span.ce.http.inflight.max", "num", "Requests in flight (most at once)"),
+                 ("span.ce.process.memory.rss_mb", "num", "Resident memory (MiB)"),
+                 ("span.ce.stats.storage.azure.reads", "num", "Azure Blob reads")]
 BROWSER_ATTRS = [("span.ce.page", "str", "Page"), ("span.ce.catalog", "str", "Catalog"),
                  ("span.ce.page_view.kind", "str", "Hard or soft load"), ("span.url.template", "str", "API call"),
                  ("span.user.id", "str", "User"), ("resource.browser.name", "str", "Browser"),
@@ -249,6 +265,7 @@ def attr_panel(attr, kind, title, x, y, w=12, h=9):
 # (top values each), biggest gap first. SQL fails on a column that isn't there, so list only attributes this kind of
 # span always carries.
 RANK_BACKEND = [("Route", "span.http.route"), ("Page", "span.ce.page"), ("Catalog", "span.ce.catalog"),
+                ("Class", "span.ce.class"),
                 ("Course", "span.ce.course.key"), ("Status", "span.http.response.status_code"), ("User", "span.user.id")]
 RANK_BROWSER = [("Page", "span.ce.page"), ("Catalog", "span.ce.catalog"), ("Hard or soft", "span.ce.page_view.kind"),
                 ("Entry page", "span.ce.entry_page"), ("User", "span.user.id")]
