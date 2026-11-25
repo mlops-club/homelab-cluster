@@ -1,0 +1,43 @@
+# Values for prometheus-community/prometheus-node-exporter: one CPU temperature per node, nothing else.
+#
+# Purpose: Expose each node's CPU package temperature on :9100 for the "vitals" Collector
+#     (otel-operator/vitals-collector.yaml), which scrapes the node-exporter on its own node.
+# Scope: A DaemonSet with every node-exporter collector disabled except hwmon, and hwmon limited to one sensor.
+# Overview:
+#   - The OpenTelemetry Collector's hostmetrics receiver has no temperature scraper, so temperature comes from
+#     node-exporter's hwmon collector (Linux /sys/class/hwmon).
+#   - --collector.disable-defaults turns off the ~40 default collectors (cpu, meminfo, filesystem, netdev, ...);
+#     --collector.hwmon turns one back on. --web.disable-exporter-metrics drops node-exporter's own go_* and
+#     promhttp_* series.
+#   - chip-include / sensor-include keep only the CPU package sensor: Intel coretemp "Package id 0"
+#     (platform_coretemp_0;temp1, nodes 1-3, NucBox G2) and AMD k10temp Tctl (pci0000_00_0000_00_18_3;temp1,
+#     node 4). Other sensors (per-core coretemp, ACPI thermal zone) are never read.
+#   - The Collector's relabel rule repeats the same filter, so a widened flag here still costs no series.
+#   - hostNetwork (chart default) lets the Collector reach it at <node IP>:9100 with no service discovery.
+#     Only /sys is mounted; the root filesystem mount and host PID namespace are off.
+# Related: helmfile.yaml.gotmpl (release prometheus-node-exporter), otel-operator/PROPOSAL.md
+
+extraArgs:
+  - --collector.disable-defaults
+  - --collector.hwmon
+  - --collector.hwmon.chip-include=^(platform_coretemp_0|pci0000_00_0000_00_18_3)$
+  - --collector.hwmon.sensor-include=^(platform_coretemp_0|pci0000_00_0000_00_18_3);temp1$
+  - --web.disable-exporter-metrics
+
+hostRootFsMount:
+  enabled: false
+hostPID: false
+
+prometheus:
+  monitor:
+    enabled: false
+
+resources:
+  requests:
+    cpu: 5m
+    memory: 16Mi
+  limits:
+    memory: 48Mi
+
+tolerations:
+  - operator: Exists

@@ -12,6 +12,8 @@ its ConfigMap, Service, and RBAC.
 |------------------|--------------|
 | `values.yaml`    | Helm values for the `opentelemetry-operator` chart. Pins the default Collector image to the `contrib` distribution (only one shipping `k8sattributes` + `prometheus`). Webhook TLS via cert-manager. |
 | `collector.yaml` | One `OpenTelemetryCollector` CR (Deployment mode) plus its ServiceAccount/ClusterRole/Binding. Scrapes NVIDIA DCGM exporter, enriches with k8s.* resource attributes, exports metrics to the `eric-sandbox` Better Stack source over OTLP HTTP. |
+| `vitals-collector.yaml` | The `vitals` `OpenTelemetryCollector` CR (DaemonSet mode) plus its ServiceAccount/ClusterRole/Binding. Sends five metrics to Grafana Cloud: CPU and memory per node and per pod (kubelet_stats) and CPU package temperature per node (node-exporter hwmon). Allow-list filter, three labels, 60 s interval. |
+| `PROPOSAL.md` | Why the vitals Collector looks the way it does: every telemetry stream that reaches Grafana Cloud, its series or GB, the levers that raise each one, the free-tier budget, and the rollback. |
 
 ## Pipeline
 

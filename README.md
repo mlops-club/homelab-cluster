@@ -27,16 +27,22 @@ graph TD
     end
 
     %% ── OBSERVABILITY ────────────────────────────────────────────
-    subgraph obs [Observability · opentelemetry-* + kube-state-metrics + radar]
+    subgraph obs [Observability · opentelemetry-* + kube-state-metrics + node-exporter + radar]
         KSM[kube-state-metrics<br/><sub>v7.4.0</sub>]:::release
         RADAR[radar<br/><sub>radar · v1.20.2</sub>]:::release
         BS_SEC{{Secret:<br/>betterstack-sandbox-ingest-token}}:::hook
         OTEL_OP[opentelemetry-operator<br/><sub>v0.115.0</sub>]:::release
         OTEL_COL{{OpenTelemetryCollector:<br/>gateway + RBAC}}:::hook
+        NODE_EXP[prometheus-node-exporter<br/><sub>node-exporter · v5.2.0</sub>]:::release
+        VIT_SEC{{Secret:<br/>grafana-otlp-vitals}}:::hook
+        VIT_COL{{OpenTelemetryCollector:<br/>vitals DaemonSet + RBAC}}:::hook
 
         BS_SEC -- presync --> OTEL_OP
+        VIT_SEC -- presync --> OTEL_OP
         OTEL_OP -- postsync --> OTEL_COL
+        OTEL_OP -- postsync --> VIT_COL
         KSM --> OTEL_OP
+        NODE_EXP --> OTEL_OP
     end
 
     %% ── PRIVATE NETWORK ──────────────────────────────────────────

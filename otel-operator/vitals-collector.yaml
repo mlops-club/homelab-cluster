@@ -1,0 +1,173 @@
+# OpenTelemetryCollector "vitals": node and pod vitals for Grafana Cloud, kept inside the free tier.
+#
+# Purpose: Send exactly five metrics to Grafana Cloud Metrics (Mimir): CPU and memory per node, CPU and memory
+#     per pod, and one CPU package temperature per node. Nothing else: no logs, no spans, no container or volume
+#     series, no network or filesystem series.
+# Scope: One DaemonSet-mode Collector (one pod per node) reconciled by the OpenTelemetry Operator, plus its
+#     ServiceAccount and RBAC. It reads only its own node: the kubelet's stats summary and the node-exporter
+#     hwmon endpoint on the same node.
+# Overview:
+#   - kubelet_stats (receiver): asks this node's kubelet (/stats/summary, port 10250) every 60 s; node and pod
+#     groups only. The filter below keeps 4 of the ~30 metrics those groups emit.
+#   - prometheus/hwmon (receiver): scrapes node-exporter on this node's IP (:9100) every 60 s. node-exporter runs
+#     only its hwmon collector, limited to the CPU package sensor (node-exporter/values.yaml).
+#   - filter/vitals: an allow-list of five metric names; every other metric (including the Prometheus receiver's
+#     own up and scrape_* series) is dropped here.
+#   - transform/labels: copies the three labels we keep (node, namespace, pod) onto each data point, removes the
+#     hwmon chip and sensor labels, then replaces every resource attribute with service.name=homelab-vitals and
+#     service.instance.id=<node>. Grafana Cloud turns those into job and instance, so target_info is one series
+#     per node and no per-pod resource attribute (k8s.pod.uid, ...) reaches Mimir.
+#   - otlp_http/grafana: Grafana Cloud's OTLP gateway with basic auth, from Secret grafana-otlp-vitals (a
+#     metrics:write-only access-policy token, separate from the Studio's).
+# Budget: (2 x pods) + (2 x nodes) + (1 x nodes) + (1 x nodes) active series, one data point per series per minute
+#     (1 DPM). See otel-operator/PROPOSAL.md for the measured counts and the levers that raise them.
+# Dependencies: opentelemetry-operator (helmfile), prometheus-node-exporter (helmfile, node-exporter/values.yaml),
+#     Secret grafana-otlp-vitals in the opentelemetry namespace (helmfile presync hook).
+# Related: otel-operator/PROPOSAL.md, otel-operator/collector.yaml (the older Better Stack gateway),
+#     helmfile.yaml.gotmpl (releases opentelemetry-operator and prometheus-node-exporter)
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-vitals
+  namespace: opentelemetry
+
+---
+# kubelet_stats reads /stats/summary through the kubelet, which authorizes it as nodes/stats.
+# Nothing else: no pod or namespace watch (no k8sattributes processor), no Prometheus service discovery.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-vitals
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/stats"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-vitals
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-vitals
+subjects:
+  - kind: ServiceAccount
+    name: otel-vitals
+    namespace: opentelemetry
+
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: vitals
+  namespace: opentelemetry
+spec:
+  mode: daemonset
+  serviceAccount: otel-vitals
+  # Same image as the gateway Collector: the version this Operator release is known to reconcile.
+  image: otel/opentelemetry-collector-contrib:0.154.0
+  tolerations:
+    - operator: Exists
+  resources:
+    requests:
+      cpu: 10m
+      memory: 48Mi
+    limits:
+      memory: 128Mi
+  env:
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    - name: K8S_NODE_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.hostIP
+  envFrom:
+    - secretRef:
+        name: grafana-otlp-vitals
+  config:
+    extensions:
+      basicauth/grafana:
+        client_auth:
+          username: ${env:GRAFANA_OTLP_INSTANCE_ID}
+          password: ${env:GRAFANA_OTLP_TOKEN}
+
+    receivers:
+      kubelet_stats:
+        collection_interval: 60s
+        auth_type: serviceAccount
+        endpoint: https://${env:K8S_NODE_IP}:10250
+        # k3s kubelets serve a self-signed certificate.
+        insecure_skip_verify: true
+        metric_groups: [node, pod]
+
+      prometheus/hwmon:
+        config:
+          scrape_configs:
+            - job_name: node-hwmon
+              scrape_interval: 60s
+              static_configs:
+                - targets: ["${env:K8S_NODE_IP}:9100"]
+              metric_relabel_configs:
+                # One sensor per node: Intel coretemp "Package id 0" (nodes 1-3) or AMD k10temp Tctl (node 4).
+                - source_labels: [__name__, chip, sensor]
+                  regex: "node_hwmon_temp_celsius;(platform_coretemp_0|pci0000_00_0000_00_18_3);temp1"
+                  action: keep
+
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 20
+
+      filter/vitals:
+        error_mode: ignore
+        metrics:
+          metric:
+            - >-
+              not (name == "k8s.node.cpu.usage" or name == "k8s.node.memory.working_set" or
+              name == "k8s.pod.cpu.usage" or name == "k8s.pod.memory.working_set" or
+              name == "node_hwmon_temp_celsius")
+
+      transform/labels:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(attributes["k8s.node.name"], "${env:K8S_NODE_NAME}")
+              - set(attributes["k8s.namespace.name"], resource.attributes["k8s.namespace.name"]) where resource.attributes["k8s.namespace.name"] != nil
+              - set(attributes["k8s.pod.name"], resource.attributes["k8s.pod.name"]) where resource.attributes["k8s.pod.name"] != nil
+              - delete_key(attributes, "chip")
+              - delete_key(attributes, "sensor")
+          - context: resource
+            statements:
+              - delete_matching_keys(attributes, ".*")
+              - set(attributes["service.name"], "homelab-vitals")
+              - set(attributes["service.instance.id"], "${env:K8S_NODE_NAME}")
+
+      batch:
+        timeout: 10s
+
+    exporters:
+      otlp_http/grafana:
+        endpoint: ${env:GRAFANA_OTLP_ENDPOINT}
+        auth:
+          authenticator: basicauth/grafana
+
+    service:
+      extensions: [basicauth/grafana]
+      pipelines:
+        metrics:
+          receivers: [kubelet_stats, prometheus/hwmon]
+          processors: [memory_limiter, filter/vitals, transform/labels, batch]
+          exporters: [otlp_http/grafana]
+      telemetry:
+        logs:
+          level: warn
+        metrics:
+          level: none

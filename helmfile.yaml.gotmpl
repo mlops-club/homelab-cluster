@@ -8,9 +8,9 @@
 #     StorageClasses, and Ingress resources that exist outside Helm's release tracking.
 #     Chart versions are pinned to prevent accidental upgrades.
 # Dependencies: helmfile, helm, helm-diff plugin, kubectl, envsubst, .env with credentials
-# Exports: 12 Helm releases across 9 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator, opentelemetry-operator-system, opentelemetry, kube-state-metrics, radar)
+# Exports: 13 Helm releases across 10 namespaces (traefik-private, traefik-public, nfs-system, image-registry, gpu-operator, opentelemetry-operator-system, opentelemetry, kube-state-metrics, node-exporter, radar)
 # Environment: Production homelab cluster (k3s on 3 Intel NUCs)
-# Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml, radar/values.yaml
+# Related: bootstrap.sh, env.example, network/*/values.yaml, storage/nfs/values.yaml, image-registry/values.yaml, radar/values.yaml, node-exporter/values.yaml
 # Implementation: helmfile v1 with Go templating, presync/postsync hooks for non-Helm resources
 #
 # IMPORTANT: When adding/removing releases or modifying hooks, update the dependency graph
@@ -276,7 +276,7 @@ releases:
             kubectl apply -f network/public/traefik/traefik-ingress.yaml
 
   # ==========================================================================
-  # OBSERVABILITY (OpenTelemetry Operator + Collector → Better Stack)
+  # OBSERVABILITY (OpenTelemetry Operator + Collectors → Better Stack, Grafana Cloud)
   # ==========================================================================
 
   # kube-state-metrics — exposes Kubernetes object state (pod phase, restart
@@ -291,10 +291,25 @@ releases:
     version: 7.4.0
     wait: true
 
+  # prometheus-node-exporter — one CPU package temperature per node, for the
+  # "vitals" Collector (otel-operator/vitals-collector.yaml). Every collector is
+  # off except hwmon, and hwmon reads one sensor; see node-exporter/values.yaml.
+  - name: prometheus-node-exporter
+    namespace: node-exporter
+    createNamespace: true
+    chart: prometheus-community/prometheus-node-exporter
+    version: 5.2.0
+    wait: true
+    values:
+      - node-exporter/values.yaml
+
   # OpenTelemetry Operator — manages OpenTelemetryCollector custom resources.
   # The Collector defined in otel-operator/collector.yaml scrapes
   # nvidia-dcgm-exporter and ships metrics with k8s.* attributes to the
-  # eric-sandbox source in the Sandbox team on Better Stack.
+  # eric-sandbox source in the Sandbox team on Better Stack. The Collector in
+  # otel-operator/vitals-collector.yaml (DaemonSet) sends node and pod CPU and
+  # memory plus node temperature to Grafana Cloud; see otel-operator/PROPOSAL.md.
+  # It is applied only when HOMELAB_VITALS_GRAFANA_OTLP_TOKEN is set.
   #
   # Why this ordering:
   #   - cert-manager must be deployed first (admission webhook TLS).
@@ -312,6 +327,7 @@ releases:
       - traefik-private/cert-manager
       - gpu-operator/gpu-operator
       - kube-state-metrics/kube-state-metrics
+      - node-exporter/prometheus-node-exporter
     hooks:
       # Create the opentelemetry namespace and the Better Stack ingest-token
       # Secret the Collector reads via envFrom. Idempotent.
@@ -326,6 +342,21 @@ releases:
               --from-literal=BETTERSTACK_SOURCE_TOKEN="${BETTERSTACK_SANDBOX_INGEST_TOKEN}" \
               --namespace opentelemetry \
               --dry-run=client -o yaml | kubectl apply -f -
+      # Grafana Cloud OTLP credentials for the vitals Collector: a metrics:write
+      # access-policy token of its own (not the Studio's). Skipped when unset.
+      - events: ["presync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            [ -n "${HOMELAB_VITALS_GRAFANA_OTLP_TOKEN}" ] || { echo "vitals: HOMELAB_VITALS_GRAFANA_OTLP_TOKEN unset, skipping Secret"; exit 0; }
+            kubectl create secret generic grafana-otlp-vitals \
+              --from-literal=GRAFANA_OTLP_ENDPOINT="${HOMELAB_VITALS_GRAFANA_OTLP_ENDPOINT}" \
+              --from-literal=GRAFANA_OTLP_INSTANCE_ID="${HOMELAB_VITALS_GRAFANA_OTLP_INSTANCE_ID}" \
+              --from-literal=GRAFANA_OTLP_TOKEN="${HOMELAB_VITALS_GRAFANA_OTLP_TOKEN}" \
+              --namespace opentelemetry \
+              --dry-run=client -o yaml | kubectl apply -f -
       # Apply the Collector CR + RBAC after the Operator's CRDs and webhook
       # are running. Operator's `wait: true` above guarantees its pod is
       # Ready before this hook fires.
@@ -336,6 +367,14 @@ releases:
           - "-c"
           - |
             kubectl apply -f otel-operator/collector.yaml
+      - events: ["postsync"]
+        showlogs: true
+        command: "/bin/sh"
+        args:
+          - "-c"
+          - |
+            [ -n "${HOMELAB_VITALS_GRAFANA_OTLP_TOKEN}" ] || { echo "vitals: HOMELAB_VITALS_GRAFANA_OTLP_TOKEN unset, skipping Collector"; exit 0; }
+            kubectl apply -f otel-operator/vitals-collector.yaml
 
   # Radar — read-only Kubernetes UI (topology, timeline, issues, Helm, logs)
   # plus an MCP server for AI agents, at https://radar.priv.mlops-club.org
