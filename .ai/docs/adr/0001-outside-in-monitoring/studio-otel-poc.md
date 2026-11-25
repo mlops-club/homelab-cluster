@@ -123,9 +123,14 @@ $ added URLs: http://collector:4318 (test placeholder)
 | Attribute family | Set by | How |
 |---|---|---|
 | `vcs.*`, `cicd.*`, `ce.cicd.triggered_by` | `otel/build-otel.sh` | build arg → image env `OTEL_BUILD_ATTRIBUTES` (from `GITHUB_RUN_ID`, `GITHUB_WORKFLOW`, `GITHUB_TRIGGERING_ACTOR` in Actions; git + shell on a laptop) |
-| `deployment.*`, `service.namespace` | `otel/deploy-otel.sh` | `OTEL_DEPLOY_ATTRIBUTES`; the container joins both into `OTEL_RESOURCE_ATTRIBUTES` |
-| browser copies of the above | the server | inlined into `index.html` with the browser config |
-| `k8s.*`, `container.image.*` | collector `k8s_attributes` (namespaced Role) | by the sending pod's IP; browser pipeline excluded |
+| `ce.vcs.commit.*`, `vcs.change.*`, `ce.vcs.change.*` (added 2026-11-25) | `otel/change-attributes.py`, called by `build-otel.sh` | `gh api repos/CredentialEngine/ctdl-xtra/commits/<sha>` and `…/pulls` (read-only); no PR (feature-branch build) or no `gh`: left out |
+| `deployment.*`, `service.namespace`, `ce.deploy.*` (added 2026-11-25) | `otel/deploy-otel.sh`, `otel-prod/deploy-prod-otel.sh` | `OTEL_DEPLOY_ATTRIBUTES`; the container joins both into `OTEL_RESOURCE_ATTRIBUTES` |
+| `k8s.namespace.name`, `k8s.pod.name`, `k8s.pod.uid`, `k8s.node.name`, `host.name`, `ce.k8s.pod.ip` (added 2026-11-25) | the pod's downward API (`K8S_*` env) | the container's startup wrapper appends them to `OTEL_RESOURCE_ATTRIBUTES` |
+| browser copies of the above | the server | inlined into `index.html` with the browser config (`browser_config()` keeps `service.version`, `service.namespace`, `deployment.`, `vcs.`, `cicd.`, `k8s.`, `host.`, `ce.vcs.`, `ce.cicd.`, `ce.deploy.`; not `ce.k8s.pod.ip`) |
+| `k8s.*`, `container.image.*` | collector `k8s_attributes` (namespaced Role) | by the sending pod's IP; browser pipeline excluded. Its pod/node/namespace values equal the downward API's (verified on one production trace) |
+
+All values are percent-encoded in `OTEL_RESOURCE_ATTRIBUTES` and cut to 200 characters (PR titles and commit subjects
+hold `,` and `=`); the Python SDK's `OTELResourceDetector` URL-decodes them.
 | `k8s.cluster.name` | collector `resource` processor | static |
 
 The collector config (`otel/collector.yaml`) has two receivers and two pipelines; the browser's lives behind the
@@ -475,13 +480,22 @@ Stability is per semantic conventions **v1.45.0**. "Web SDK" = `@honeycombio/ope
 | `cicd.pipeline.run.id` | `local-20261121T084950Z` (`GITHUB_RUN_ID` in CI) | cicd, release candidate | all | build arg |
 | `cicd.pipeline.run.url.full` | `https://github.com/…/actions/runs/<id>` (CI only) | cicd, release candidate | all | build arg (CI only; not set on the laptop run) |
 | `cicd.worker.name` | `laptop` / `github-actions` | cicd, release candidate | all | build arg |
-| `ce.cicd.triggered_by` | `phitoduck` (`GITHUB_TRIGGERING_ACTOR` in CI) | custom (ce.): semconv has no "triggered by" | all backend | build arg |
+| `ce.cicd.triggered_by` | `phitoduck` (`GITHUB_TRIGGERING_ACTOR` in CI) | custom (ce.): semconv has no "triggered by" | all (web since `4c22cf4`) | build arg |
+| `ce.vcs.commit.author` | `phitoduck` (GitHub login, else the git author name) | custom (ce.): semconv vcs has no author | all | build, GitHub API (`change-attributes.py`) |
+| `ce.vcs.commit.message` | `Studio telemetry: browser spans carry the change, the deployment and the pod` (subject line, ≤ 200 chars) | custom (ce.) | all | build, GitHub API |
+| `ce.vcs.commit.timestamp` | `2026-11-24T23:54:47Z` (committer date) | custom (ce.) | all | build, GitHub API |
+| `vcs.change.id` / `vcs.change.title` / `vcs.change.state` | `454` / `Read saved pages as UTF-8.` / `merged` (`open`, `merged`, `closed`); only when the commit has a PR | vcs, release candidate | all | build, GitHub API: the earliest merged PR, else an open one from the built branch |
+| `ce.vcs.change.url`, `ce.vcs.change.author`, `ce.vcs.change.merged_by`, `ce.vcs.change.merged_at` | `https://github.com/CredentialEngine/ctdl-xtra/pull/454`, `sethalt`, `sethalt`, `2026-11-19T19:13:31Z` (merged_* only when merged) | custom (ce.): semconv has no PR url/author | all | build, GitHub API |
+| `ce.deploy.triggered_by` | `phitoduck` (`GITHUB_ACTOR` in CI, else `git config user.name`) | custom (ce.) | all | deploy script |
+| `ce.deploy.pipeline.run.url` | `https://github.com/…/actions/runs/<id>` (CI only) | custom (ce.) | all | deploy script (CI only) |
+| `host.name` | `cluster-node-1` (= the node) | host, development | all | downward API (`spec.nodeName`) |
+| `ce.k8s.pod.ip` | `10.42.…` | custom (ce.): semconv has no pod IP | all backend | downward API (`status.podIP`); kept out of the browser config |
 | `k8s.cluster.name` | `homelab` | k8s, development | all backend | collector `resource` processor |
-| `k8s.namespace.name` | `golden-rules-studio-otel` | k8s, stable | all backend | collector `k8s_attributes` |
-| `k8s.pod.name` / `k8s.pod.uid` | `golden-rules-studio-fbb8d6448-vrdr6` / `b34513cf-…` | k8s, stable | all backend | collector `k8s_attributes` |
+| `k8s.namespace.name` | `golden-rules-studio-otel` | k8s, stable | all (web since `4c22cf4`) | collector `k8s_attributes`; downward API (same value) |
+| `k8s.pod.name` / `k8s.pod.uid` | `golden-rules-studio-fbb8d6448-vrdr6` / `b34513cf-…` | k8s, stable | all (web since `4c22cf4`) | collector `k8s_attributes`; downward API (same values) |
 | `k8s.pod.start_time` | `2026-11-21T08:59:49Z` | k8s, development | all backend | collector `k8s_attributes` |
 | `k8s.deployment.name` / `k8s.replicaset.name` | `golden-rules-studio` / `…-fbb8d6448` | k8s, stable | all backend | collector `k8s_attributes` |
-| `k8s.node.name` | `cluster-node-1` | k8s, stable | all backend | collector `k8s_attributes` |
+| `k8s.node.name` | `cluster-node-1` | k8s, stable | all (web since `4c22cf4`) | collector `k8s_attributes`; downward API (same value) |
 | `k8s.container.name` | `golden-rules-studio` | k8s, stable | all backend | collector `k8s_attributes` |
 | `container.image.name` | `cr.priv…/golden-rules-studio/app` | container, stable | all backend | collector `k8s_attributes` (`container.image.tags` from the next deploy) |
 | `process.pid`, `process.runtime.name`, `process.runtime.version` | `1`, `cpython`, `3.12.16` | process, development / release candidate | all backend | app code |
