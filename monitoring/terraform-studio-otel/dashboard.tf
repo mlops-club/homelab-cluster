@@ -10,7 +10,7 @@
 #   the page's recent page-view traces. Thresholds are Google's web-vitals good / needs-improvement bounds
 
 locals {
-  tempo   = { type = "tempo", uid = "grafanacloud-traces" }
+  tempo = { type = "tempo", uid = "grafanacloud-traces" }
   # $${env}: the dashboard's Environment variable (production, or otel-poc for the isolated instance)
   web     = "resource.service.name=\"golden-dataset-studio-web\" && resource.deployment.environment.name=\"$${env}\""
   backend = "resource.service.name=\"golden-dataset-studio\" && resource.deployment.environment.name=\"$${env}\""
@@ -53,17 +53,17 @@ locals {
 
   page_panels = flatten([for i, p in local.pages : [
     { id = 100 * (i + 1), type = "row", title = "${p.title}  (ce.page = ${p.id})", collapsed = false, panels = [],
-    gridPos = { x = 0, y = 9 + i * local.row_h, w = 24, h = 1 } },
+    gridPos = { x = 0, y = 22 + i * local.row_h, w = 24, h = 1 } },
 
     { id      = 100 * (i + 1) + 1, type = "text", title = "${p.title}: what it looks like",
-      gridPos = { x = 0, y = 10 + i * local.row_h, w = 7, h = 11 },
+      gridPos = { x = 0, y = 23 + i * local.row_h, w = 7, h = 11 },
     options = { mode = "markdown", content = "![${p.title} page](${local.img_url}/${p.id}.png)\n\n${p.what}" } },
 
     # web vitals: one stat each (instant p75 over the dashboard range)
     [for j, v in local.vitals : {
       id          = 100 * (i + 1) + 10 + j, type = "stat", title = v.title, datasource = local.tempo
       description = v.scope == "entry" ? "Hard loads that landed on this page (resource.entry_page.hash)" : "Reported while this page was shown. No data: none reported (INP needs an interaction) or every value was 0 (TraceQL quantiles skip zeros)"
-      gridPos     = { x = 7 + (j % 3) * 3, y = 10 + i * local.row_h + floor(j / 3) * 4, w = 3, h = j < 3 ? 4 : 7 }
+      gridPos     = { x = 7 + (j % 3) * 3, y = 23 + i * local.row_h + floor(j / 3) * 4, w = 3, h = j < 3 ? 4 : 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.web} && name=\"${v.name}\" && ${v.scope == "entry" ? local.entry_re[p.id] : "span.ce.page=\"${p.id}\""}} | quantile_over_time(span.${v.attr}, .75)" }]
       options = { colorMode = "background", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
@@ -72,7 +72,7 @@ locals {
     }],
     {
       id      = 100 * (i + 1) + 20, type = "stat", title = "Page views", datasource = local.tempo
-      gridPos = { x = 13, y = 14 + i * local.row_h, w = 3, h = 7 }
+      gridPos = { x = 13, y = 27 + i * local.row_h, w = 3, h = 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.web} && name=\"page_view\" && span.ce.page=\"${p.id}\"} | count_over_time()" }]
       options     = { colorMode = "none", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
@@ -81,7 +81,7 @@ locals {
     {
       id          = 100 * (i + 1) + 21, type = "stat", title = "p75 time to ready", datasource = local.tempo,
       description = "page_view span: route change (or navigation start) until the page's API calls finished"
-      gridPos     = { x = 16, y = 10 + i * local.row_h, w = 4, h = 4 }
+      gridPos     = { x = 16, y = 23 + i * local.row_h, w = 4, h = 4 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.web} && name=\"page_view\" && span.ce.page=\"${p.id}\"} | quantile_over_time(span.ce.page.ready.duration_ms, .75)" }]
       options = { colorMode = "background", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
@@ -91,7 +91,7 @@ locals {
     {
       id          = 100 * (i + 1) + 22, type = "stat", title = "Backend errors", datasource = local.tempo,
       description = "Server spans of calls made from this page with status error or HTTP >= 400"
-      gridPos     = { x = 20, y = 10 + i * local.row_h, w = 4, h = 4 }
+      gridPos     = { x = 20, y = 23 + i * local.row_h, w = 4, h = 4 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.backend} && kind=server && span.ce.page=\"${p.id}\" && (status=error || span.http.response.status_code >= 400)} | count_over_time()" }]
       options = { colorMode = "background", graphMode = "none", textMode = "value", reduceOptions = { calcs = ["lastNotNull"] } }
@@ -100,7 +100,7 @@ locals {
     },
     {
       id      = 100 * (i + 1) + 23, type = "bargauge", title = "p95 backend latency by API route (calls from this page)", datasource = local.tempo
-      gridPos = { x = 16, y = 14 + i * local.row_h, w = 8, h = 7 }
+      gridPos = { x = 16, y = 27 + i * local.row_h, w = 8, h = 7 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.backend} && kind=server && span.ce.page=\"${p.id}\"} | quantile_over_time(duration, .95) by (span.http.route)" }]
       options         = { orientation = "horizontal", displayMode = "basic", showUnfilled = true, reduceOptions = { calcs = ["lastNotNull"] } }
@@ -114,7 +114,7 @@ locals {
       { t = "p75 time to ready by deployment (image tag)", by = "resource.deployment.name" },
       ] : {
       id      = 100 * (i + 1) + 30 + k, type = "bargauge", title = b.t, datasource = local.tempo
-      gridPos = { x = k * 8, y = 21 + i * local.row_h, w = 8, h = 5 }
+      gridPos = { x = k * 8, y = 34 + i * local.row_h, w = 8, h = 5 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "instant",
       query = "{${local.web} && name=\"page_view\" && span.ce.page=\"${p.id}\"} | quantile_over_time(span.ce.page.ready.duration_ms, .75) by (${b.by})" }]
       options         = { orientation = "horizontal", displayMode = "basic", showUnfilled = true, reduceOptions = { calcs = ["lastNotNull"] } }
@@ -123,15 +123,45 @@ locals {
     }],
     {
       id      = 100 * (i + 1) + 40, type = "table", title = "Recent ${p.title} page views (click a trace ID for the browser → server trace)", datasource = local.tempo
-      gridPos = { x = 0, y = 26 + i * local.row_h, w = 24, h = 8 }
+      gridPos = { x = 0, y = 39 + i * local.row_h, w = 24, h = 8 }
       targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", tableType = "traces", limit = 20,
       query = "{${local.web} && name=\"page_view\" && span.ce.page=\"${p.id}\"} | select(span.user.id, span.ce.catalog, span.ce.page.ready.duration_ms, span.ce.stats.api.calls, resource.deployment.name)" }]
     },
   ]])
 
+  # Service map and classes: the servicegraph connector's metrics (collector, metrics to Grafana Cloud) drawn by Tempo's
+  # service-map query; backend latency by CTDL class (span.ce.class) and Azure Blob Storage calls (CLIENT spans,
+  # peer.service = azure-blob-storage) from TraceQL metrics
+  service = [
+    { id = 10, type = "row", title = "Service map and classes", collapsed = false, panels = [],
+    gridPos = { x = 0, y = 9, w = 24, h = 1 } },
+    {
+      id      = 11, type = "nodeGraph", title = "Service map: browser, Studio server, Azure Blob Storage", datasource = local.tempo
+      gridPos = { x = 0, y = 10, w = 12, h = 12 }
+      targets = [{ refId = "A", datasource = local.tempo, queryType = "serviceMap",
+      serviceMapQuery = "{client_deployment_environment_name=\"$${env}\"}" }]
+    },
+    {
+      id      = 12, type = "timeseries", title = "Backend p95 latency by class", datasource = local.tempo
+      gridPos = { x = 12, y = 10, w = 12, h = 6 }
+      targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "range",
+      query = "{${local.backend} && kind=server && span.ce.class != nil} | quantile_over_time(duration, .95) by (span.ce.class)" }]
+      transformations = local.label_only
+      fieldConfig     = { defaults = { unit = "s" } }
+    },
+    {
+      id      = 13, type = "timeseries", title = "Azure Blob Storage p95 by operation", datasource = local.tempo
+      gridPos = { x = 12, y = 16, w = 12, h = 6 }
+      targets = [{ refId = "A", datasource = local.tempo, queryType = "traceql", metricsQueryType = "range",
+      query = "{${local.backend} && kind=client && span.peer.service=\"azure-blob-storage\"} | quantile_over_time(duration, .95) by (span.ce.storage.op)" }]
+      transformations = local.label_only
+      fieldConfig     = { defaults = { unit = "s" } }
+    },
+  ]
+
   overview = [
     { id = 1, type = "text", title = "", transparent = true, gridPos = { x = 0, y = 0, w = 24, h = 2 },
-    options = { mode = "markdown", content = "**CTDL Golden Rules Studio, OpenTelemetry** (choose **Environment**: production, or the isolated POC instance). All panels are TraceQL / TraceQL metrics on Tempo: no metrics store. Web vitals of hard loads are grouped by the page the browser landed on (`resource.entry_page.hash`); INP and CLS by the page shown when reported (`span.ce.page`). Grafana Cloud limits TraceQL metrics to 24 h." } },
+    options = { mode = "markdown", content = "**CTDL Golden Rules Studio, OpenTelemetry** (choose **Environment**: production, or the isolated POC instance). Panels are TraceQL / TraceQL metrics on Tempo, except the service map, which reads the collector's service-graph metrics. Web vitals of hard loads are grouped by the page the browser landed on (`resource.entry_page.hash`); INP and CLS by the page shown when reported (`span.ce.page`). Grafana Cloud limits TraceQL metrics to 24 h." } },
     {
       id      = 2, type = "timeseries", title = "Page views by page", datasource = local.tempo
       gridPos = { x = 0, y = 2, w = 12, h = 7 }
@@ -166,11 +196,11 @@ resource "grafana_dashboard" "studio_otel" {
     refresh  = ""
     tags     = ["studio", "otel", "poc"]
     templating = { list = [{
-      name = "env", label = "Environment", type = "custom", query = "Production : production,Isolated POC : otel-poc",
+      name    = "env", label = "Environment", type = "custom", query = "Production : production,Isolated POC : otel-poc",
       current = { text = "Production", value = "production" },
       options = [{ text = "Production", value = "production", selected = true }, { text = "Isolated POC", value = "otel-poc", selected = false }]
     }] }
-    panels   = concat(local.overview, local.page_panels)
+    panels = concat(local.overview, local.service, local.page_panels)
   })
 }
 
