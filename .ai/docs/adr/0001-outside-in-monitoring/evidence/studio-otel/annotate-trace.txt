@@ -1,0 +1,36 @@
+[golden-dataset-studio-web] annotate  89 ms
+  [golden-dataset-studio] POST /api/catalogs/{catalog}/annotations  50 ms
+
+span POST /api/catalogs/{catalog}/annotations
+   ce.annotation.author_role = engineer
+   ce.annotation.id = an-f314ee97efbb
+   ce.annotation.target_kind = page
+   ce.annotation.type = verdict
+   ce.annotation.verdict = correct
+   ce.catalog = marshall
+   ce.catalog.folder = catalog-marshall-edu
+   ce.catalog.platform = CourseLeaf
+   ce.crawl.id = 2026-10-20T13-18-30Z
+   ce.extraction.id = rs-0016
+   ce.golden.published = False
+   ce.page = rules
+   ce.page.stem = catalog-marshall-edu-graduate-courses-az-psy-17433d8441
+   ce.rule.id = course-page
+   ce.ruleset.version = 16
+   ce.snapshot.cache = hit
+   ce.stats.storage.local.bytes_read = 1641
+   ce.stats.storage.local.bytes_written = 545
+   ce.stats.storage.local.duration_ms = 3.1
+   ce.stats.storage.local.reads = 5
+   ce.stats.storage.local.stats = 2
+   ce.stats.storage.local.writes = 1
+   http.request.method = POST
+   http.response.body.size = 942
+   http.response.status_code = 200
+   http.route = /api/catalogs/{catalog}/annotations
+   user.id = OTel Tester
+   user.roles = ['engineer']
+resource:
+   ce.cicd.triggered_by = phitoduck
+   deployment.name = 6308326-otel
+   k8s.pod.name = golden-rules-studio-6dcc9585cb-8sclj

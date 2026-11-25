@@ -1,0 +1,15 @@
+configmap/otel-collector created
+persistentvolumeclaim/studio-data created
+deployment.apps/golden-rules-studio created
+service/golden-rules-studio created
+serviceaccount/otel-collector created
+role.rbac.authorization.k8s.io/otel-collector created
+rolebinding.rbac.authorization.k8s.io/otel-collector created
+deployment.apps/otel-collector created
+service/otel-collector created
+ingress.networking.k8s.io/golden-rules-studio created
+Waiting for deployment "otel-collector" rollout to finish: 0 of 1 updated replicas are available...
+deployment "otel-collector" successfully rolled out
+Waiting for deployment "golden-rules-studio" rollout to finish: 0 of 1 updated replicas are available...
+deployment "golden-rules-studio" successfully rolled out
+deployment "golden-rules-studio" successfully rolled out

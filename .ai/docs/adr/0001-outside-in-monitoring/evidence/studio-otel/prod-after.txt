@@ -1,0 +1,7 @@
+2026-11-21T09:48:17Z
+84 84
+prod 200 0.564567s
+NAME                                   START                  RESTARTS   IMAGE
+golden-rules-studio-694db5bb85-lpjht   2026-11-20T19:37:20Z   0          cr.priv.mlops-club.org/golden-rules-studio/app:a78be91
+--- events in golden-rules-studio since the POC began:
+TIME   REASON   OBJ

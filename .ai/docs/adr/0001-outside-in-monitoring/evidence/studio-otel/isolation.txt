@@ -1,0 +1,18 @@
+$ kubectl -n golden-rules-studio-otel exec deploy/golden-rules-studio -- env | grep -E "AZURE|K2|GOLDEN_DATASETS_(ROOT|GOLDEN_ROOT|XTRA_SOURCE|CRAWLS_ROOT)" | sed "s/=.*/=…/" for secrets
+(Azure/K2 variables found: 0)
+GOLDEN_DATASETS_ROOT=/data/root
+GOLDEN_DATASETS_XTRA_SOURCE=/data/xtra-source
+GOLDEN_DATASETS_CRAWLS_ROOT=/data/root
+GOLDEN_DATASETS_GOLDEN_ROOT=/data/golden
+$ kubectl -n golden-rules-studio-otel get secrets
+grafana-otlp
+harbor-creds
+mlops-wildcard-tls
+priv-wildcard-tls
+studio-password
+$ curl https://studio-otel.priv.mlops-club.org/api/health
+{"ok":true,"root":"/data/root"}
+$ curl https://studio-otel.priv.mlops-club.org/api/telemetry
+{"browser":{"endpoint":"/otlp/v1/traces","sample_rate":1,"resource":{"vcs.repository.url.full":"https://github.com/CredentialEngine/ctdl-xtra","vcs.repository.name":"ctdl-xtra","vcs.owner.name":"CredentialEngine","vcs.provider.name":"github","vcs.ref.head.revision":"63083266c7755639a6c1d5eed44d10279ab2c774","vcs.ref.head.type":"branch","vcs.ref.head.name":"feat/otel-instrumentation-poc","cicd.pipeline.name":"build-otel.sh","cicd.pipeline.run.id":"local-20261121T084950Z","cicd.worker.name":"laptop","service.namespace":"ctdl-xtra","deployment.environment.name":"otel-poc","deployment.id":"local-20261121T085831Z","deployment.name":"6308326-otel","service.version":"0.1.0"}}}
+$ agent runs config
+401 (needs sign-in)
