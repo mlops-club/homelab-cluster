@@ -80,6 +80,21 @@ Architecture diagrams use **Mermaid** in markdown files. Keep diagrams alongside
 | Storage configuration | `storage/` |
 | Application deployments | `apps/` |
 
+## Container Image Rules
+
+The cluster is mixed-architecture: the NUCs are `linux/amd64` and `cluster-node-5` (MacBook Pro, see
+ADR 0006) is `linux/arm64`. The scheduler does not check an image's architectures, and a pod that fails
+to pull on the wrong architecture stays bound to that node and retries there indefinitely.
+
+- **Build every image we own for both platforms**:
+  `docker buildx build --platform linux/amd64,linux/arm64 --push -t <image>:<tag> .`
+  Never hardcode a single `--platform` (for example `--platform linux/amd64`) in a build script.
+- **Check third-party images before deploying**:
+  `docker buildx imagetools inspect <image>:<tag>` must list both `linux/amd64` and `linux/arm64`.
+- **If an image is single-architecture**, pin the workload to it with
+  `nodeSelector: {kubernetes.io/arch: amd64}` (or `arm64`) and say why in a comment. Harbor's
+  `goharbor/*` images are amd64-only and are pinned this way in `image-registry/values.yaml`.
+
 ## Security Rules
 
 - Never commit secrets or credentials

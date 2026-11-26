@@ -1,3 +1,25 @@
+# Harbor publishes amd64-only images (goharbor/*). Pin every component to amd64 nodes so none can be
+# scheduled onto the arm64 node cluster-node-5, where the image pull would fail.
+portal:
+  nodeSelector: &amd64
+    kubernetes.io/arch: amd64
+core:
+  nodeSelector: *amd64
+jobservice:
+  nodeSelector: *amd64
+registry:
+  nodeSelector: *amd64
+nginx:
+  nodeSelector: *amd64
+exporter:
+  nodeSelector: *amd64
+database:
+  internal:
+    nodeSelector: *amd64
+redis:
+  internal:
+    nodeSelector: *amd64
+
 containerSecurityContext:
   runAsNonRoot: false
   allowPrivilegeEscalation: true
@@ -57,3 +79,4 @@ chartmuseum:
 
 trivy:
   enabled: false
+  nodeSelector: *amd64
