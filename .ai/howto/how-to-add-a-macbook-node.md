@@ -45,10 +45,10 @@ export NODE_NAME=cluster-node-5 MAC_ADDRESS=52:55:55:50:00:05
 
 ### Step 2: Prepare macOS (System Settings, by hand)
 
-1. **Turn FileVault off** (System Settings → Privacy & Security → FileVault → Turn Off). With it on, an
-   unattended reboot stops at the unlock screen and the VM never starts.
-2. **Set Charge Limit to 80%** (System Settings → Battery → Charging → Charge Limit). This protects the
-   always-plugged-in battery and needs no extra software.
+1. **Turn FileVault off**, so the VM starts after an unattended reboot. See ADR 0006, decision 8
+   ([FileVault off](../docs/adr/0006-macbook-cluster-node/decision.md#filevault-off)).
+2. **Set Charge Limit to 80%**. Where the setting is, why 80%, and a screenshot are in ADR 0006,
+   decision 7 ([Battery](../docs/adr/0006-macbook-cluster-node/decision.md#battery-charge-limit)).
 3. Make sure the Wi-Fi network is saved (it reconnects at boot before anyone logs in).
 
 ### Step 3: Install Lima and socket_vmnet
