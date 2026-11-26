@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
-# Purpose: Create the cluster-node-5 Lima VM on the MacBook and join it to the k3s cluster as cluster-node-5
-# Scope: User-level steps only (Lima VM lifecycle, join token copy, readiness wait); root steps live in host-setup.sh
-# Overview: Idempotent. Creates and starts the VM from lima-k3s-agent.yaml if it does not exist, streams the cluster
-#     joins the tailnet as NODE_NAME (tag:homelab, Tailscale SSH) through an interactive login URL, streams the cluster
-#     join token from a server node straight into the guest over SSH (never written to the Mac's disk), enables the
-#     k3s-agent systemd unit, and waits for the Node to report Ready. Run `sudo ./host-setup.sh apply` first so the
-#     bridged network (socket_vmnet + Lima sudoers) exists, and again afterwards to register the boot LaunchDaemon.
+# Purpose: Create a Lima VM on an Apple Silicon MacBook and join it to the k3s cluster as NODE_NAME
+# Scope: User-level steps only (Lima VM lifecycle, Tailscale join, join token copy, readiness wait); root steps live
+#     in host-setup.sh
+# Overview: Idempotent. Creates and starts the VM from lima-k3s-agent.yaml if it does not exist, sized from the host
+#     (all cores; RAM minus 8 GiB) with the node name and guest MAC applied. Joins the tailnet as NODE_NAME
+#     (tag:homelab, Tailscale SSH) through an interactive login URL, streams the cluster join token from a server
+#     node straight into the guest over SSH (never written to the Mac's disk), enables the k3s-agent systemd unit,
+#     and waits for the Node to report Ready. Run `sudo ./host-setup.sh apply` first so the bridged network
+#     (socket_vmnet + Lima sudoers) exists, and again afterwards to register the boot LaunchDaemon.
+#     See .ai/howto/how-to-add-a-macbook-node.md.
 # Dependencies: limactl, kubectl (context pointing at the homelab cluster), SSH access to a server node with sudo
-# Interfaces: ./install.sh   (env: INSTANCE, NODE_NAME, TOKEN_HOST override defaults)
+# Interfaces: NODE_NAME=cluster-node-N MAC_ADDRESS=52:55:55:50:00:0N ./install.sh
+#     (env: NODE_NAME, INSTANCE (defaults to NODE_NAME), MAC_ADDRESS, CPUS, MEMORY_GIB, TOKEN_HOST)
 # Implementation: Token read with `sudo cat /var/lib/rancher/k3s/server/node-token` on TOKEN_HOST
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
-INSTANCE="${INSTANCE:-cluster-node-5}"
 NODE_NAME="${NODE_NAME:-cluster-node-5}"
+INSTANCE="${INSTANCE:-${NODE_NAME}}"
+MAC_ADDRESS="${MAC_ADDRESS:-52:55:55:50:00:05}"
+CPUS="${CPUS:-$(sysctl -n hw.ncpu)}"
+MEMORY_GIB="${MEMORY_GIB:-$(($(sysctl -n hw.memsize) / 1073741824 - 8))}"
 TOKEN_HOST="${TOKEN_HOST:-main@cluster-node-1}"
 
 if ! limactl list -q | grep -qx "${INSTANCE}"; then
-  limactl create --name "${INSTANCE}" --tty=false ./lima-k3s-agent.yaml
+  limactl create --name "${INSTANCE}" --tty=false --cpus "${CPUS}" --memory "${MEMORY_GIB}" \
+    --set ".param.nodeName = \"${NODE_NAME}\" | .networks[0].macAddress = \"${MAC_ADDRESS}\"" \
+    ./lima-k3s-agent.yaml
 fi
 if [[ "$(limactl list "${INSTANCE}" --format '{{.Status}}')" != "Running" ]]; then
   if launchctl print "system/io.lima-vm.daemon.${INSTANCE}" >/dev/null 2>&1; then

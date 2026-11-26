@@ -10,8 +10,8 @@
 
 set -euo pipefail
 
-INSTANCE="${INSTANCE:-cluster-node-5}"
 NODE_NAME="${NODE_NAME:-cluster-node-5}"
+INSTANCE="${INSTANCE:-${NODE_NAME}}"
 
 if launchctl print "system/io.lima-vm.daemon.${INSTANCE}" >/dev/null 2>&1; then
   echo "LaunchDaemon io.lima-vm.daemon.${INSTANCE} is loaded; run 'sudo ./host-setup.sh revert' first" >&2

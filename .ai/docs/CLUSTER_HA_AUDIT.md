@@ -29,6 +29,7 @@
 | cluster-node-2 | control-plane, etcd | 192.168.50.226 | Hosts local-path state for k2, Radar, Immich ML cache |
 | cluster-node-3 | control-plane, etcd | 192.168.50.94 | Hosts local-path state for Audiobookshelf |
 | cluster-node-4 | worker (GPU) | 192.168.50.102 | Hosts local-path / hostPath state for Retrom, Open WebUI, Ollama model cache. Was NotReady when the audit ran, so Retrom was down |
+| cluster-node-5 | worker (arm64, MacBook Pro VM) | 192.168.50.136 | Added after the audit ([ADR 0006](adr/0006-macbook-cluster-node/decision.md)); Wi-Fi uplink. Full hardware inventory: [NODE_REGISTRY.md](NODE_REGISTRY.md) |
 | NAS (UGOS) | NFS server | 192.168.50.192 / 100.117.142.58 (Tailscale) | Accepted SPOF |
 
 Storage classes: `local-path` (the default; data lives on one node's disk, and the PV gets a hard

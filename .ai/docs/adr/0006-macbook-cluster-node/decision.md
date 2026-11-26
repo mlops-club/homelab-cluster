@@ -9,15 +9,16 @@
     (socket_vmnet) so it is a peer on 192.168.50.0/24 like a physical node, and it joins the tailnet as
     `cluster-node-5` with `tag:homelab` and Tailscale SSH, exactly like the NUCs. A boot LaunchDaemon keeps
     the VM running; pmset keeps the Mac awake with the lid closed on AC power; macOS Charge Limit protects
-    the battery. The node is tainted so only workloads that tolerate it (arm64-capable images) land there.
+    the battery. The node is an ordinary schedulable worker: the cluster is mixed-architecture, every
+    workload image is multi-arch or pinned to amd64, and the node is recorded in the node registry.
     Every host change has a scripted revert. Nothing here depends on a particular MacBook model; sizing
     follows the host's core count and memory.
 
 **Dependencies**: `macbook-node/lima-k3s-agent.yaml`, `macbook-node/install.sh`, `macbook-node/uninstall.sh`, `macbook-node/host-setup.sh`
 
-**Exports**: The `node.mlops-club.org/macbook=true:NoSchedule` taint and `node.mlops-club.org/host=macbook-pro` label; the Lima + LaunchDaemon pattern for running a Linux node on macOS
+**Exports**: The `node.mlops-club.org/host=macbook-pro` label; the mixed-architecture image rules; the Lima + LaunchDaemon pattern for running a Linux node on macOS
 
-**Related**: `.ai/docs/CLUSTER_HA_AUDIT.md`, `k3s-ansible/inventory/cluster/hosts.ini`, `storage/README.md`
+**Related**: `.ai/docs/NODE_REGISTRY.md`, `.ai/ai-rules.md` (Container Image Rules), `.ai/docs/CLUSTER_HA_AUDIT.md`, `k3s-ansible/inventory/cluster/hosts.ini`, `storage/README.md`
 
 ---
 
@@ -55,12 +56,10 @@
 4. **k3s agent v1.30.2+k3s2** pointed at `https://192.168.50.96:6443` (the same server URL
    `cluster-node-4` uses). The join token is streamed from `cluster-node-1` into
    `/etc/rancher/k3s/cluster-token` inside the guest and never touches the Mac's disk.
-5. **Opt-in scheduling**: taint `node.mlops-club.org/macbook=true:NoSchedule`, label
-   `node.mlops-club.org/host=macbook-pro`, and `node.kubernetes.io/exclude-from-external-load-balancers=true`
-   so MetalLB never answers for a LoadBalancer IP from this node. The node is arm64. The scheduler does
-   not check an image's architectures: an amd64-only pod placed here fails to pull, and because a pod is
-   bound to its node, the kubelet retries on the same node indefinitely instead of moving it to a NUC.
-   The taint stays until every workload image is multi-arch or pinned to `kubernetes.io/arch: amd64`.
+5. **Schedulable worker in a mixed-architecture cluster**: label `node.mlops-club.org/host=macbook-pro`
+   and `node.kubernetes.io/exclude-from-external-load-balancers=true` so MetalLB never answers for a
+   LoadBalancer IP from this node. No taint. Joining an arm64 node makes architecture a cluster-wide
+   concern, handled in [Mixed-architecture cluster](#mixed-architecture-cluster).
 6. **Always-on host** (`macbook-node/host-setup.sh apply`, revert with `revert`):
    - `pmset -a disablesleep 1` (no sleep with the lid closed), and on AC: `sleep 0`, `disksleep 0`,
      `standby 0`, `powernap 0`, `womp 1`, `tcpkeepalive 1`, `displaysleep 2`. `apply` saves the prior
@@ -95,6 +94,30 @@ graph LR
     K3S -->|6443| NUC
     TS -->|tailnet| NAS[NAS 100.117.142.58<br/>NFS]
 ```
+
+## Mixed-architecture cluster
+
+The NUCs and the GPU node are `linux/amd64`; this node is `linux/arm64`. The scheduler does not check
+an image's architectures: a pod whose image has no arm64 variant still lands here, fails to pull, and
+because a pod is bound to its node, the kubelet retries on this node indefinitely instead of moving it
+to a NUC. Running the node without a taint therefore requires:
+
+1. **Every image we build is multi-arch.** `.ai/ai-rules.md` (Container Image Rules), Step 5 of
+   `.ai/howto/how-to-deploy-a-new-app.md` and the PR checklist require
+   `docker buildx build --platform linux/amd64,linux/arm64`. Agents read `ai-rules.md` first, so new
+   work defaults to multi-arch.
+2. **Single-arch third-party images are pinned.** Harbor's `goharbor/*` images are amd64-only; every
+   Harbor component has `nodeSelector: {kubernetes.io/arch: amd64}` in `image-registry/values.yaml`.
+3. **Existing single-arch images were converted.** An audit of every image in every Deployment,
+   StatefulSet, DaemonSet and CronJob found 50 multi-arch and 13 amd64-only: the 7 Harbor images
+   (pinned) and 6 of our own (golden-rules-studio ×2, k2-agents, loseit agent, the personal-finance
+   preview, xtra-reviewer-mockup). For each of ours an arm64 variant was built and published under the
+   same tag as a multi-arch index that keeps the original amd64 manifest byte-identical, so running pods
+   were not changed. Their build scripts were changed to build both platforms.
+4. **The node registry records each node's architecture** (`.ai/docs/NODE_REGISTRY.md`).
+
+To re-run the audit, list the images in all workload templates and check each with
+`docker buildx imagetools inspect --raw <image>` for an `arm64` entry.
 
 ## Joining the tailnet
 
@@ -164,7 +187,7 @@ panic or reboot with FileVault off, and a router reboot.
   NFS, and a pause when Wi-Fi reconnects. Wi-Fi allows one MAC per client, so vmnet rewrites the guest's
   MAC on the way out. A USB-C 2.5 GbE adapter (RTL8156B chipset, supported by macOS without a driver)
   and a patch cable remove all of this; set it as the bridged interface in Lima's `networks.yaml`.
-- **arm64.** Images must be multi-arch to run here. Harbor (`goharbor/*`) publishes amd64 only.
+- **arm64.** Every image that can land here must be multi-arch; see below.
 - **Laptop power.** `disablesleep` is global, so the Mac does not sleep on battery either.
 
 ## Consequences
@@ -182,10 +205,14 @@ panic or reboot with FileVault off, and a router reboot.
 
 ## Operations
 
+The full setup procedure, verification and removal steps are in
+`.ai/howto/how-to-add-a-macbook-node.md`. Day-2 commands:
+
 | Task | Command |
 |---|---|
 | Build and join | `sudo macbook-node/host-setup.sh apply` then `macbook-node/install.sh`, then `apply` again to hand the VM to launchd |
 | Status | `sudo macbook-node/host-setup.sh status`, `kubectl get node cluster-node-5`, `ssh main@cluster-node-5` |
 | Stop until next `apply` or reboot | `sudo macbook-node/host-setup.sh pause` |
 | Remove everything | `sudo macbook-node/host-setup.sh revert && macbook-node/uninstall.sh`, delete the device in the Tailscale console, `brew uninstall lima socket_vmnet` |
-| Schedule a pod here | add `tolerations: [{key: node.mlops-club.org/macbook, operator: Exists, effect: NoSchedule}]` and optionally `nodeSelector: {kubernetes.io/hostname: cluster-node-5}` |
+| Pin a pod here | `nodeSelector: {kubernetes.io/hostname: cluster-node-5}` (or `kubernetes.io/arch: arm64`) |
+| Keep a single-arch amd64 image off it | `nodeSelector: {kubernetes.io/arch: amd64}` |

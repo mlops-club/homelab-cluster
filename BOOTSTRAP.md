@@ -66,6 +66,18 @@ The bootstrap script is idempotent and can be run multiple times safely. It will
 
 For detailed information about what the script does, see the implementation in [`bootstrap.sh`](bootstrap.sh).
 
+## Adding Nodes
+
+- **Linux hosts (NUCs, GPU box):** add the host to `k3s-ansible/inventory/cluster/hosts.ini` and re-run
+  the bootstrap; it is idempotent.
+- **Apple Silicon MacBooks:** not Ansible-managed. Follow
+  [`.ai/howto/how-to-add-a-macbook-node.md`](.ai/howto/how-to-add-a-macbook-node.md) (Lima VM, Tailscale,
+  always-on host settings).
+
+Record every node in [`.ai/docs/NODE_REGISTRY.md`](.ai/docs/NODE_REGISTRY.md). The cluster is
+mixed-architecture (amd64 + arm64), so images must be multi-arch; see Container Image Rules in
+[`.ai/ai-rules.md`](.ai/ai-rules.md).
+
 ## Component Documentation
 
 - **Private Network**: See [network/private/README.md](network/private/README.md)
