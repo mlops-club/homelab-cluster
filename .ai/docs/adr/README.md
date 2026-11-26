@@ -17,3 +17,4 @@
 | ADR | Topic | Research | POC | Decision |
 |---|---|---|---|---|
 | [0002](0002-traefik-default-certificate/) | Traefik default certificate instead of per-namespace secret copies | In decision (Alternatives considered) | None | [decision.md](0002-traefik-default-certificate/decision.md) (Accepted) |
+| [0006](0006-macbook-cluster-node/) | MacBook Pro as k3s agent node `cluster-node-5` (Lima VM, Tailscale, always-on host) | In decision (Alternatives considered) | In decision (Verification) | [decision.md](0006-macbook-cluster-node/decision.md) (Accepted) |
