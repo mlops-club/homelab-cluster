@@ -26,6 +26,8 @@
 - **Cluster**: K3s cluster is running and `kubectl` is configured
 - **Networking**: Private and/or public network stacks are deployed
 - **Image**: Container image is available (Docker Hub, Harbor at `cr.priv.mlops-club.org`, or other registry)
+  and is multi-arch (`linux/amd64` + `linux/arm64`), or the Deployment pins `kubernetes.io/arch` (see
+  Container Image Rules in `.ai/ai-rules.md`)
 - **DNS**: Domain is configured (mlops-club.org for public, priv.mlops-club.org for private)
 
 ## Steps
@@ -151,7 +153,24 @@ Make it executable:
 chmod +x apps/<app-name>/deploy.sh
 ```
 
-### Step 5: Handle Private Registry Images (if needed)
+### Step 5: Build and Check a Multi-Arch Image
+
+The cluster has amd64 NUCs and an arm64 node (`cluster-node-5`). Build images you own for both:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t cr.priv.mlops-club.org/<app-name>/app:<tag> --push .
+docker buildx imagetools inspect cr.priv.mlops-club.org/<app-name>/app:<tag>   # lists both platforms
+```
+
+For a third-party image that has only one architecture, add to the pod spec:
+
+```yaml
+nodeSelector:
+  kubernetes.io/arch: amd64   # <image> publishes amd64 only
+```
+
+### Step 5b: Handle Private Registry Images (if needed)
 
 If using Harbor (`cr.priv.mlops-club.org`):
 
@@ -204,5 +223,6 @@ curl -s https://<app-name>.priv.mlops-club.org
 - [ ] App directory exists at `apps/<app-name>/`
 - [ ] manifest.yaml contains Namespace, Deployment, Service, and Ingress
 - [ ] deploy.sh is executable and applies the manifest
+- [ ] Image lists both `linux/amd64` and `linux/arm64`, or the Deployment pins `kubernetes.io/arch`
 - [ ] Pod is running and healthy
 - [ ] Service is accessible via the chosen domain
