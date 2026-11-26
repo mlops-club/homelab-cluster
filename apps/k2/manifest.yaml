@@ -1,0 +1,244 @@
+# manifest.yaml
+# Purpose: Kubernetes objects for K2 (k2-daemon with the Claude Code CLI) in namespace k2
+# Scope: Namespace, ConfigMap, Service, StatefulSet, Ingress and NetworkPolicy for K2 at k2.priv.mlops-club.org
+# Overview: Exported from the live cluster objects, with status, uid, resourceVersion, managedFields,
+#     creationTimestamp and the kubectl last-applied annotation removed. One k2-daemon replica runs the
+#     k2-agents image built by build.sh, keeps its state on a 50Gi local-path volume at /var/lib/k2, and
+#     is node-pinned to cluster-node-2 because local-path data lives on that node's disk. The ConfigMap
+#     supplies the daemon environment (federation, tunnel lease and relays turned off). The Ingress
+#     serves the API on traefik-private; the NetworkPolicy admits traffic only from traefik-private,
+#     the k2 namespace, and namespaces labeled k2.mlops-club.org/client=true.
+# Dependencies: Secrets created out of band and never committed: harbor-creds (image pull secret,
+#     kubernetes.io/dockerconfigjson). The namespace also holds Opaque Secrets k2-owner,
+#     golden-rules-studio-api-key and golden-rules-studio-api-key-previous, which no object here mounts.
+# Usage: kubectl apply -f apps/k2/manifest.yaml
+# Related: Dockerfile, build.sh, README.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: k2
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+  name: k2
+---
+apiVersion: v1
+data:
+  HOME: /var/lib/k2
+  K2_API: '1'
+  K2_DAEMON_PORT: '7420'
+  K2_DNS_API_BASE: http://127.0.0.1:9
+  K2_FEDERATION: 'off'
+  K2_LISTEN: lan
+  K2_RELAY_LIST_URL: http://127.0.0.1:9/disabled
+  K2_ROLE: all
+  K2_TUNNEL_LEASE: 'off'
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: k2
+  name: k2
+  namespace: k2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: k2
+  name: k2
+  namespace: k2
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: api
+    port: 7420
+    protocol: TCP
+    targetPort: api
+  selector:
+    app.kubernetes.io/name: k2
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/part-of: k2
+  name: k2
+  namespace: k2
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k2
+  serviceName: k2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k2
+        app.kubernetes.io/part-of: k2
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - cluster-node-2
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - mkdir -p "$HOME/.k2" && printf %s "$K2_DAEMON_PORT" > "$HOME/.k2/daemon.port"
+          && exec /usr/bin/k2-daemon
+        command:
+        - /usr/bin/tini
+        - --
+        - sh
+        - -c
+        envFrom:
+        - configMapRef:
+            name: k2
+        image: cr.priv.mlops-club.org/k2/k2-agents:0.46.5-cc2.1.308-uv0.13.6
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /boot-status
+            port: api
+            scheme: HTTP
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: k2-daemon
+        ports:
+        - containerPort: 7420
+          name: api
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /boot-status
+            port: api
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /boot-status
+            port: api
+            scheme: HTTP
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/k2
+          name: data
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: harbor-creds
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 10000
+        runAsGroup: 0
+        runAsNonRoot: true
+        runAsUser: 10000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: k2
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 50Gi
+      storageClassName: local-path
+      volumeMode: Filesystem
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    external-dns.alpha.kubernetes.io/controller: none
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app.kubernetes.io/part-of: k2
+  name: k2
+  namespace: k2
+spec:
+  ingressClassName: traefik-private
+  rules:
+  - host: k2.priv.mlops-club.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: k2
+            port:
+              name: api
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - k2.priv.mlops-club.org
+    secretName: priv-wildcard-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/part-of: k2
+  name: k2-ingress
+  namespace: k2
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: traefik-private
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: k2
+    - namespaceSelector:
+        matchLabels:
+          k2.mlops-club.org/client: 'true'
+  podSelector: {}
+  policyTypes:
+  - Ingress
