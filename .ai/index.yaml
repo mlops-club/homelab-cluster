@@ -22,6 +22,7 @@ documentation:
     - CLUSTER_HA_AUDIT.md (per-service single-point-of-failure inventory, uptime measurement plan, HA recommendations)
     - adr/README.md (index of architecture decision records)
     - adr/0002-traefik-default-certificate/decision.md (default TLSStore per Traefik, label-scoped CRD provider, Reflector removed)
+    - adr/0006-macbook-cluster-node/decision.md (MacBook Pro as k3s agent cluster-node-5: Lima VM, Tailscale, always-on host settings)
 
 howto:
   location: .ai/howto/
@@ -70,6 +71,10 @@ scripts:
     diff: source .env && helmfile -f helmfile.yaml.gotmpl diff (preview changes)
     apply: source .env && helmfile -f helmfile.yaml.gotmpl apply (deploy changes)
     template: source .env && helmfile -f helmfile.yaml.gotmpl template (render locally)
+  macbook_node:
+    install: macbook-node/install.sh (create the cluster-node-5 Lima VM and join it to k3s and the tailnet)
+    host_setup: sudo macbook-node/host-setup.sh apply|revert|pause|status (macOS power, socket_vmnet, boot LaunchDaemon)
+    uninstall: macbook-node/uninstall.sh (drain/delete cluster-node-5 and its VM)
   apps:
     come_follow_me: apps/come-follow-me-app/deploy.sh (deploy CFM app)
     seminary_feedback: apps/seminary-feedback/deploy.sh (deploy Seminary app)

@@ -1,0 +1,116 @@
+# Purpose: Lima VM definition that runs a k3s agent on the MacBook Pro (Apple Silicon) and joins the homelab cluster
+# Scope: The `cluster-node-5` Lima instance on the MacBook (VZ hypervisor, bridged onto the 192.168.50.x LAN)
+# Overview: Ubuntu 24.04 arm64 guest on Apple Virtualization.framework. The guest gets its own LAN IP via a
+#     socket_vmnet bridge so flannel VXLAN, kubelet (10250) and NodePorts are reachable from the NUC nodes exactly
+#     like a physical node. No host directories are mounted: all k3s state lives on the guest's ext4 root disk,
+#     which keeps containerd I/O on the native virtio block path and isolates the Mac filesystem from the cluster.
+#     The guest joins the tailnet as cluster-node-5 (tag:homelab, Tailscale SSH) like the NUCs. The k3s binary
+#     is installed at provision time; the join token is copied in by install.sh and Tailscale is authenticated
+#     through a browser login URL, so no secret ever lands in this file or in ~/.lima/cluster-node-5/lima.yaml.
+
+minimumLimaVersion: 2.0.0
+base: template:_images/ubuntu-24.04
+
+vmType: vz
+# Sizing: cpus = the host's core count (vCPUs are host threads, idle ones cost nothing);
+# memory = host RAM minus 8 GiB (VZ never returns freed guest memory to macOS, so this is a ceiling
+# the host gives up permanently). Values below are for a 12-core, 32 GB MacBook Pro.
+cpus: 12
+memory: 24GiB
+disk: 256GiB
+
+param:
+  serverURL: "https://192.168.50.96:6443"
+  k3sVersion: "v1.30.2+k3s2"
+  nodeName: "cluster-node-5"
+
+mounts: []
+containerd:
+  system: false
+  user: false
+
+# The node is reached on its own LAN and Tailscale IPs, never through Mac localhost. Lima's default
+# forwarding of guest ports to 127.0.0.1 is disabled so guest tailscaled (UDP 41641) cannot collide
+# with the Mac's own Tailscale.
+portForwards:
+  - guestIP: "0.0.0.0"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+  - guestIP: "::"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+
+networks:
+  # Bridged onto the Mac's Wi-Fi (en0) via socket_vmnet. The fixed MAC keeps the DHCP lease stable.
+  - lima: bridged
+    interface: lima0
+    macAddress: "52:55:55:50:00:05"
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      timedatectl set-timezone America/Denver || true
+      # Kernel settings Kubernetes networking expects.
+      cat >/etc/sysctl.d/90-k3s.conf <<'SYSCTL'
+      net.ipv4.ip_forward = 1
+      net.bridge.bridge-nf-call-iptables = 1
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 1048576
+      kernel.panic = 10
+      kernel.panic_on_oops = 1
+      SYSCTL
+      modprobe br_netfilter overlay || true
+      sysctl --system >/dev/null
+      hostnamectl set-hostname {{.Param.nodeName}}
+      # Same login user as the NUCs, so `ssh main@{{.Param.nodeName}}` over Tailscale SSH works identically.
+      if ! id main >/dev/null 2>&1; then
+        useradd --create-home --shell /bin/bash --groups sudo,adm main
+      fi
+      echo 'main ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/90-main
+      chmod 0440 /etc/sudoers.d/90-main
+      # Tailscale makes this VM a tailnet device like the NUCs: Tailscale SSH, MagicDNS name, and a route
+      # to the NAS's Tailscale IP that the nas-nfs StorageClass uses. Authentication is interactive
+      # (install.sh prints a login URL) so no auth key is stored anywhere.
+      if ! command -v tailscale >/dev/null 2>&1; then
+        curl -fsSL https://tailscale.com/install.sh | sh
+      fi
+      systemctl enable --now tailscaled
+      if [ ! -x /usr/local/bin/k3s ]; then
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{.Param.k3sVersion}}" \
+          INSTALL_K3S_SKIP_START=true \
+          INSTALL_K3S_SKIP_ENABLE=true \
+          INSTALL_K3S_EXEC="agent" \
+          K3S_URL="{{.Param.serverURL}}" \
+          sh -
+      fi
+      mkdir -p /etc/rancher/k3s
+      cat >/etc/rancher/k3s/config.yaml <<'K3SCFG'
+      server: {{.Param.serverURL}}
+      token-file: /etc/rancher/k3s/cluster-token
+      node-name: {{.Param.nodeName}}
+      flannel-iface: lima0
+      node-label:
+        - node.mlops-club.org/host=macbook-pro
+        - node.kubernetes.io/exclude-from-external-load-balancers=true
+      node-taint:
+        - node.mlops-club.org/macbook=true:NoSchedule
+      kubelet-arg:
+        - "image-gc-high-threshold=75"
+        - "image-gc-low-threshold=60"
+        - "eviction-hard=nodefs.available<10%,imagefs.available<10%,memory.available<500Mi"
+      K3SCFG
+      # The k3s-agent unit already has Restart=always; start it only once the token exists.
+      if [ -s /etc/rancher/k3s/cluster-token ]; then
+        systemctl enable --now k3s-agent
+      fi
+
+probes:
+  - description: k3s and tailscale installed
+    script: |
+      #!/bin/bash
+      test -x /usr/local/bin/k3s && command -v tailscale >/dev/null
