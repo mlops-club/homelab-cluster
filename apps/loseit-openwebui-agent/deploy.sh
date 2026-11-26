@@ -15,9 +15,9 @@ IMAGE_TAG="${IMAGE_TAG:-${GIT_SHA}}"
 export IMAGE_TAG
 
 docker login cr.priv.mlops-club.org -u admin -p "${HARBOR_ADMIN_PASSWORD}"
-docker build --platform linux/amd64 \
-  -t "cr.priv.mlops-club.org/loseit-openwebui-agent/agent:${IMAGE_TAG}" .
-docker push "cr.priv.mlops-club.org/loseit-openwebui-agent/agent:${IMAGE_TAG}"
+# Multi-arch: the cluster mixes amd64 NUCs with an arm64 node (cluster-node-5).
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t "cr.priv.mlops-club.org/loseit-openwebui-agent/agent:${IMAGE_TAG}" --push .
 
 kubectl create namespace loseit-agent --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n loseit-agent create secret docker-registry harbor-creds \
