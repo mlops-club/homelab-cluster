@@ -96,7 +96,8 @@ homelab-cluster/
 
 The cluster runs on physical Intel NUC machines on a home LAN:
 - NUC nodes on `192.168.50.x` subnet (`linux/amd64`)
-- `cluster-node-5` is a Lima VM on a MacBook Pro (`linux/arm64`, Wi-Fi, taint `node.mlops-club.org/macbook`); see `.ai/docs/adr/0006-macbook-cluster-node/decision.md`. The cluster is mixed-architecture, so images must be multi-arch (see Container Image Rules in `ai-rules.md`)
+- Full node inventory (hardware, arch, role, provisioning): `.ai/docs/NODE_REGISTRY.md`
+- `cluster-node-5` is a Lima VM on a MacBook Pro (`linux/arm64`, Wi-Fi, schedulable); see `.ai/docs/adr/0006-macbook-cluster-node/decision.md`. The cluster is mixed-architecture, so images must be multi-arch (see Container Image Rules in `ai-rules.md`)
 - MetalLB assigns service IPs from `192.168.50.200-192.168.50.220`
 - kube-vip provides a control plane VIP
 - NAS (UGOS) provides NFS storage and hosts Harbor registry data

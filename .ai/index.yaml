@@ -19,6 +19,7 @@ documentation:
   files:
     - FILE_HEADER_STANDARDS.md (file documentation requirements)
     - ROADMAP_WORKFLOW.md (roadmap-driven development workflow)
+    - NODE_REGISTRY.md (inventory of every node: hardware, architecture, role, network, provisioning; mixed amd64/arm64 rules)
     - CLUSTER_HA_AUDIT.md (per-service single-point-of-failure inventory, uptime measurement plan, HA recommendations)
     - adr/README.md (index of architecture decision records)
     - adr/0002-traefik-default-certificate/decision.md (default TLSStore per Traefik, label-scoped CRD provider, Reflector removed)
@@ -34,6 +35,7 @@ howto:
     - how-to-deploy-a-new-app.md (deploy a new application to the cluster)
     - how-to-troubleshoot-kubernetes.md (debug K3s deployment failures)
     - how-to-bootstrap-the-cluster.md (bootstrap the cluster from scratch)
+    - how-to-add-a-macbook-node.md (turn an Apple Silicon MacBook into an always-on k3s worker: Lima VM, Tailscale, host settings, battery, removal)
     - how-to-add-audiobooks-to-audiobookshelf.md (transfer audiobooks from Libation to NAS for Audiobookshelf)
     - how-to-connect-audiobookshelf-from-ios.md (connect to Audiobookshelf from iOS using AudioBooth)
     - how-to-create-tailscale-ci-oauth.md (create Tailscale OAuth client for GitHub Actions CI)

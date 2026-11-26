@@ -10,12 +10,12 @@
 #       3. The `cluster-node-5` Lima instance registered as a LaunchDaemon (starts at boot, KeepAlive restarts it).
 #     Battery protection uses macOS's built-in Charge Limit (System Settings > Battery > Charging), not this script.
 # Dependencies: Homebrew `lima` and `socket_vmnet` formulae, an existing `cluster-node-5` Lima instance
-# Interfaces: sudo ./host-setup.sh apply|revert|pause|status   (pause = stop the VM without uninstalling)   (run as root via sudo; SUDO_USER owns the Lima instance)
+# Interfaces: sudo [INSTANCE=cluster-node-N] ./host-setup.sh apply|revert|pause|status   (pause = stop the VM without uninstalling)   (run as root via sudo; SUDO_USER owns the Lima instance)
 # Implementation: LaunchDaemon ${DAEMON_PLIST} mirrors Lima's own boot-autostart template. Backup lives in ~SUDO_USER/.config/homelab-macbook-node/pmset-backup.txt
 
 set -euo pipefail
 
-INSTANCE="cluster-node-5"
+INSTANCE="${INSTANCE:-cluster-node-5}"
 ACTION="${1:-status}"
 USER_NAME="${SUDO_USER:-$(stat -f %Su /dev/console)}"
 USER_HOME="$(dscl . -read "/Users/${USER_NAME}" NFSHomeDirectory | awk '{print $2}')"
