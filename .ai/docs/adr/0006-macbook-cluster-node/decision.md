@@ -70,10 +70,15 @@
      so the template would leave the VM down.
    - Inside the guest: `kernel.panic=10` and `kernel.panic_on_oops=1` reboot the guest in place after a
      panic; systemd restarts `k3s-agent` and `tailscaled`.
-7. **Battery**: macOS Charge Limit (System Settings → Battery → Charging, macOS 26.4+) set to 80%. It
-   is built in, survives OS updates, and needs no root daemon. A third-party tool (`batt`) could hold a
-   lower limit but adds a root daemon writing SMC keys.
-8. **FileVault off**. With FileVault on, a host crash or unattended reboot stops at the pre-boot unlock
+7. <a id="battery-charge-limit"></a>**Battery**: macOS Charge Limit set to 80% in System Settings →
+   Battery → Charging (ⓘ) → Charge Limit (macOS 26.4+), with Optimized Battery Charging left on. Heat
+   and sitting at 100% do most of the damage to an always-plugged-in battery, and 80% avoids both. The
+   limit is built in, survives OS updates, and needs no root daemon. A third-party tool (`batt`) could
+   hold a lower limit but adds a root daemon writing SMC keys; it is only worth adding if battery health
+   keeps dropping.
+
+   ![macOS Battery → Charging dialog with Charge Limit at 80% and Optimized Battery Charging on](images/macos-charge-limit-80.jpg)
+8. <a id="filevault-off"></a>**FileVault off** (System Settings → Privacy & Security → FileVault → Turn Off). With FileVault on, a host crash or unattended reboot stops at the pre-boot unlock
    screen and nothing runs until someone types a password. With it off, the Mac boots to the login
    window and the LaunchDaemon starts the VM without a login.
 
