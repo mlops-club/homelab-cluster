@@ -78,6 +78,7 @@ homelab-cluster/
 ├── apps/                       # Business applications
 │   ├── audiobookshelf/         # Self-hosted audiobook server (NFS-backed media)
 │   ├── come-follow-me-app/     # Rust backend app
+│   ├── k2/                     # K2 daemon + Claude Code (multi-arch k2-agents image, StatefulSet)
 │   ├── personal-finance/       # FIRE planner (FastAPI, NAS-backed users/)
 │   └── seminary-feedback/      # Feedback collection app
 ├── aws/                        # AWS CDK infrastructure (DR/cloud fallback)
