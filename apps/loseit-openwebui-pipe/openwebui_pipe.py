@@ -1,0 +1,224 @@
+"""Open WebUI Pipe Function — bridges chat ↔ loseit-agent FastAPI service.
+
+Upload this in Open WebUI: Workspace → Functions → +Add → paste this file.
+Once uploaded, "loseit-agent" appears as a selectable model in the chat picker.
+
+Wire format consumed from the agent's SSE stream (one JSON object per `data:` line):
+
+    {"kind":"tool",       "name":"...", "args_preview":"...", "call_id":"..."}
+    {"kind":"tool_done",  "name":"...", "call_id":"...", "elapsed_s": 1.3}
+    {"kind":"model_call", "turn": 1}
+    {"kind":"wait",       "exec_id":"...", "wait_name":"...", "prompt":"...", "options":[...]}
+    {"kind":"final",      "text":"..."}
+    {"kind":"error",      "message":"..."}
+
+UX:
+  - Each `tool` event appends `🔧 name(args)` to the message body.
+  - Each `tool_done` appends `✓ (1.3s)` on the same line.
+  - `wait` emits `❓ question + options` and the run pauses; the user's next
+    chat message resumes the run via the chat_id-keyed pending registry on
+    the server side (the Pipe itself is stateless across turns).
+  - `final` is appended after a blank line.
+
+No heartbeat, no per-event status pings — the streaming tool-call deltas
+already telegraph progress; an extra "thinking…" pill on top is just noise.
+A single status emission at the end ("Done (Ns)") closes the shimmer.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from typing import Any, AsyncIterator
+
+import httpx
+from pydantic import BaseModel
+
+
+class Pipe:
+    class Valves(BaseModel):
+        agent_url: str = "https://loseit-agent.priv.mlops-club.org"
+        auth_token: str = ""  # set in Open WebUI: Workspace → Functions → loseit-agent → Valves
+        request_timeout_s: float = 600.0
+
+    def __init__(self) -> None:
+        self.valves = self.Valves()
+        self.id = "loseit-agent"
+        self.name = "loseit-agent"
+
+    async def pipe(
+        self,
+        body: dict[str, Any],
+        __event_emitter__,
+        __metadata__: dict[str, Any] | None = None,
+    ) -> str:
+        prompt = body["messages"][-1]["content"]
+
+        # Open WebUI doesn't reliably persist Pipe-side __metadata__ mutations
+        # across chat turns, so we can't track pending HITL waits there.
+        # Instead the server maintains a chat_id → exec_id map and decides
+        # run-vs-resume internally — we just always POST /run with chat_id.
+        meta = __metadata__ or {}
+        chat_id = meta.get("chat_id") or body.get("chat_id") or body.get("session_id")
+
+        url = f"{self.valves.agent_url}/run"
+        payload = {"prompt": prompt, "chat_id": chat_id}
+
+        started = time.monotonic()
+
+        # We build up the chat message text in parallel with the deltas so the
+        # function's return value at the end matches what Open WebUI rendered
+        # via delta events. Different OW versions handle "return X after
+        # streaming deltas" differently; returning the same text we streamed
+        # guarantees the chat shows the full trace either way.
+        accumulated = ""
+        final_text = ""
+
+        # Build the message body in-memory and finalize via
+        # chat:message:replace at the very end. That replace event lets
+        # native HTML <details> blocks through where chat:message:delta
+        # would have sanitised them away. While polling we still emit
+        # status pills so the user sees activity in real time.
+        link_url = ""
+
+        try:
+            async for evt in self._stream(url, payload):
+                kind = evt.get("kind")
+                if kind == "link":
+                    link_url = evt.get("url", "")
+                    label = evt.get("label", "Open in Kitaru")
+                    accumulated += f"[🔗 {label}]({link_url})\n\n"
+                    await self._status(__event_emitter__, "Run started", done=False)
+                elif kind == "reason":
+                    text = evt.get("text", "").strip()
+                    if not text:
+                        continue
+                    snippet = text.splitlines()[0][:80]
+                    # OpenWebUI's middleware renders
+                    #   <details type="reasoning" done="true" duration="N">
+                    # as a click-to-expand "Thought for N seconds" widget.
+                    # We don't have a real duration here, so 0 is fine —
+                    # the header still shows the summary.
+                    accumulated += (
+                        '\n<details type="reasoning" done="true" duration="0">\n'
+                        f'<summary>💭 {snippet}</summary>\n\n'
+                        f'{text}\n'
+                        '</details>\n'
+                    )
+                    await self._status(
+                        __event_emitter__, f"Reasoning: {snippet}", done=False
+                    )
+                elif kind == "tool":
+                    name = evt.get("name", "?")
+                    args = evt.get("args_preview", "")
+                    await self._status(
+                        __event_emitter__, f"Calling {name}({args})", done=False
+                    )
+                elif kind == "tool_done":
+                    name = evt.get("name", "?")
+                    args = evt.get("args_preview", "")
+                    elapsed = evt.get("elapsed_s")
+                    elapsed_s = f"{elapsed:.1f}s" if isinstance(elapsed, (int, float)) else "?"
+                    is_error = evt.get("is_error")
+                    marker = "❌" if is_error else "✓"
+                    call_id = evt.get("call_id", "")
+                    result_preview = evt.get("result_preview", "") or ""
+                    truncated = evt.get("result_truncated")
+                    body = result_preview if result_preview else "(no result captured)"
+                    if truncated:
+                        body += "\n\n(truncated; see Kitaru run inspector)"
+                    # OpenWebUI renders
+                    #   <details type="tool_calls" done="true" id=… name=…>
+                    # as a "Tool Executed" collapsible. We include the args
+                    # in the summary so the closed header is informative.
+                    accumulated += (
+                        f'\n<details type="tool_calls" done="true" '
+                        f'id="{call_id}" name="{name}" arguments="">\n'
+                        f"<summary>🔧 {name}({args}) {marker} ({elapsed_s})</summary>\n\n"
+                        "```\n"
+                        f"{body}\n"
+                        "```\n\n"
+                        "</details>\n"
+                    )
+                    await self._status(
+                        __event_emitter__,
+                        f"Tool {name} done ({elapsed_s})",
+                        done=False,
+                    )
+                elif kind == "wait":
+                    # Server already recorded the pending exec_id keyed by
+                    # chat_id; the question becomes the user-visible final
+                    # message (no plain answer when paused). The final
+                    # chat:message:replace at the end of this loop will
+                    # render it; emitting it now via delta would double-print.
+                    question = evt.get("prompt") or "Need clarification."
+                    options = evt.get("options") or []
+                    body_text = "\n\n❓ **" + question + "**\n"
+                    if options:
+                        body_text += "\n" + "\n".join(f"- {o}" for o in options)
+                        body_text += "\n\n*(Reply with one of the options above, or type your own — your next message in this chat continues the run.)*"
+                    final_text = body_text
+                    break
+                elif kind == "final":
+                    # `final` is the agent's last visible answer; it goes
+                    # into the chat as plain text below the collapsibles.
+                    final_text = evt.get("text", "") or final_text
+                elif kind == "error":
+                    msg = evt.get("message", "agent error")
+                    await __event_emitter__(
+                        {"type": "notification", "data": {"type": "error", "content": msg}}
+                    )
+                    final_text = f"Error: {msg}"
+                    break
+                # `model_call` is dropped — the tool-call deltas already show
+                # progress and the extra status events crowd the message.
+        except Exception as exc:
+            await __event_emitter__(
+                {"type": "notification", "data": {"type": "error", "content": str(exc)}}
+            )
+            return f"Pipe transport error: {exc}"
+
+        # Compose the final body and replace the whole message in one
+        # shot. chat:message:replace lets <details>...</details> through
+        # where chat:message:delta would have stripped them.
+        body = accumulated
+        if final_text:
+            body += "\n" + final_text + "\n"
+
+        await __event_emitter__(
+            {"type": "chat:message:replace", "data": {"content": body}}
+        )
+
+        elapsed = int(time.monotonic() - started)
+        await self._status(__event_emitter__, f"Done ({elapsed}s)", done=True)
+
+        return body if body else final_text
+
+    async def _stream(self, url: str, payload: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        headers = {"Content-Type": "application/json"}
+        if self.valves.auth_token:
+            headers["Authorization"] = f"Bearer {self.valves.auth_token}"
+
+        async with httpx.AsyncClient(timeout=self.valves.request_timeout_s) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if not data:
+                        continue
+                    try:
+                        yield json.loads(data)
+                    except json.JSONDecodeError:
+                        # ignore malformed lines — keeps the pipe resilient
+                        continue
+
+    @staticmethod
+    async def _status(emit, description: str, done: bool) -> None:
+        await emit(
+            {
+                "type": "status",
+                "data": {"description": description, "done": done, "hidden": False},
+            }
+        )
